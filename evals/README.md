@@ -1,0 +1,24 @@
+Eval files
+
+- Place small, runnable Python scripts under evals/ with a .py extension.
+- Eval scripts must use the Python standard library only and should be runnable
+  with `python path/to/eval.py`.
+- A script should perform its checks and exit with code 0 on success and non-zero
+  on failure. It may print a short, human-readable summary to stdout and any
+  diagnostics to stderr.
+
+Runner: evals/run_all.py
+
+- Purpose: discover and execute eval scripts under evals/ and report per-file
+  pass/fail status based on exit codes.
+- Usage: python evals/run_all.py [--json-output FILE]
+- The runner executes each eval as a separate process (same Python interpreter),
+  captures stdout/stderr and returns exit code 0 if all evals passed, else 1.
+- The --json-output FILE option writes an aggregated JSON summary containing
+  results for each file (path, returncode, stdout, stderr, passed boolean).
+
+Notes and security
+
+- The runner executes code on the local machine; evaluators should not run
+  untrusted code. Use CI isolation or sandboxing as appropriate.
+- The contract is intentionally small to reduce maintenance burden.
