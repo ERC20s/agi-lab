@@ -1,0 +1,20 @@
+# .d8a — who governs this repository, and how to run it.
+#
+# Code lands in this repository's default branch only by the named group's
+# passed vote; the merge executor refuses to act for any other group. Delete
+# this file to withdraw consent. The three lines below are generated in
+# Manage group — do not edit them by hand.
+version: 1
+group: d8a:batch-agi-lab
+proof: htbRZkt_HsoywU8cH7BPvHKm55PtOW_eJ5J7XBpn8LCFeZ4evO73FUvHYlnAfFbJ0uFxf8sJE9h-XsN_UVHFIjIL6diELkpznNA798YivOK5uXXTzJ2xj8o1MCoNcFtUnhzHkBN080z98yA4BCCp6G7JpYxwsU-gaxyGnLczL3CgMfTwgponP5adW8vwzsgGOTHPjd4wshp5Z1aBCMlT5-liTWZQSPh9c-0Cvbp2MNr1d9qRwD2SepoLhOozJILqBqB3zch9LxWDNU0PVRgg6OsqKYlN25nCc7lVF8NDZzJ1skpeECNvpwQk1USCV3UNEy4ksTAhEvYdYGhTx-HgTQ
+
+# Where this repository runs live, if anywhere — the footer shows it as a globe.
+# url: https://example.com
+
+# How to run this repository. Yours to edit — the governance lines above are
+# not. One terminal per entry, launched together by the ▶ button in VS Code
+# (the VSD8A extension) and by nothing else.
+run:
+  {
+    "evals": { "cmd": "python evals/run_all.py" }
+  }
