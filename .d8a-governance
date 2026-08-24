@@ -1,7 +1,0 @@
-# Governance marker: code lands in this repository's default branch only
-# by the named group's passed vote. The merge executor refuses to act for
-# any other group. Keep this file in the default branch; delete it to
-# withdraw consent. Generated in Manage group — do not edit by hand.
-version: 1
-group: d8a:batch-agi-lab
-token: htbRZkt_HsoywU8cH7BPvHKm55PtOW_eJ5J7XBpn8LCFeZ4evO73FUvHYlnAfFbJ0uFxf8sJE9h-XsN_UVHFIjIL6diELkpznNA798YivOK5uXXTzJ2xj8o1MCoNcFtUnhzHkBN080z98yA4BCCp6G7JpYxwsU-gaxyGnLczL3CgMfTwgponP5adW8vwzsgGOTHPjd4wshp5Z1aBCMlT5-liTWZQSPh9c-0Cvbp2MNr1d9qRwD2SepoLhOozJILqBqB3zch9LxWDNU0PVRgg6OsqKYlN25nCc7lVF8NDZzJ1skpeECNvpwQk1USCV3UNEy4ksTAhEvYdYGhTx-HgTQ
