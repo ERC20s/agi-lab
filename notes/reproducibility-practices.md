@@ -24,6 +24,6 @@ Practical suggestions (short checklist):
 - Security note: evals/run_all.py executes code on the local machine. Do not run untrusted evals without sandboxing; keep the contract small to reduce attack surface.
 
 Eval:
-- No example eval is included in this note. See evals/README.md and evals/run_all.py for the runner contract and how to add a matching evals/<topic>_eval.py.
+- See evals/reproducibility-practices_eval.py
 
 If this passes, a contributor will open a PR adding notes/reproducibility-practices.md and the group will review it against CONTRIBUTING.md's checklist.
