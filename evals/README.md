@@ -8,21 +8,25 @@ Eval files
   on failure. It may print a short, human-readable summary to stdout and any
   diagnostics to stderr.
 
-Repository-wide eval: evals/note-coverage_eval.py
+Repository-wide evals
 
-- Most evals here validate one hard-coded note. note-coverage_eval.py validates
-  the set: it walks notes/*.md and evals/*_eval.py, derives the topic from each
+- note-coverage_eval.py validates the set: it walks notes/*.md and evals/*_eval.py, derives the topic from each
   filename and fails when a note has no evals/<topic>_eval.py, when an eval has
   no notes/<topic>.md, or when an evals/... path named in a note's Eval section
   does not exist. It prints one OK/FAIL line per topic, so a failure names the
   file to fix.
-- It follows the same contract as every other eval (stdlib only, module
-  docstring, main() harness, exit 0 on success and non-zero on failure) and is
-  discovered by run_all.py like any other *_eval.py.
-- A meta-eval checks the repository rather than a single note, so it is exempt
-  from needing a note of its own. The exemptions are the filenames in the
-  META_EVALS set at the top of note-coverage_eval.py; add a new meta-eval's
-  filename there.
+- note-format_eval.py is a new meta-eval that checks each note's top-level
+  sections and that the Eval: section points at an existing eval script. It
+  reuses the same section-boundary and eval-path heuristics as
+  note-coverage_eval.py to reduce false positives. When a note lacks an explicit
+  "Sources:" section but contains a URL elsewhere the meta-eval emits a
+  non-failing warning suggesting the URL be moved into Sources; when a
+  Sources: section is present it must include at least one http(s) URL.
+- Both files follow the usual eval contract (stdlib only, module docstring,
+  main() harness, exit 0 on success) and are discovered and run by
+  evals/run_all.py like any other *_eval.py. Add a new meta-eval's filename to
+  the META_EVALS set in evals/note-coverage_eval.py so it is exempt from the
+  per-note pairing rule.
 
 Runner: evals/run_all.py
 
@@ -33,29 +37,6 @@ Runner: evals/run_all.py
   runner itself, __init__.py and __pycache__ are excluded as before. Any other
   .py file under evals/ — a shared helper module, a scratch file — is skipped:
   it is never executed, never counted as a pass, and never fails the run.
-- Skipped files are listed after the report, one line each:
-  `[SKIP] note_checks.py (not *_eval.py)`, so nothing disappears silently.
-  Renaming a file to <topic>_eval.py puts it back in the run.
-- The runner executes each eval as a separate process (same Python interpreter),
-  captures stdout/stderr and returns exit code 0 if all evals passed, else 1.
-- Per-eval timeout: each eval is given DEFAULT_TIMEOUT seconds (60) of wall
-  clock; --timeout SECONDS overrides it (any number greater than 0). An eval
-  that exceeds the limit is killed, reported as
-  `[TIMEOUT] slow_eval.py (exit=None)` with a stderr line naming the file and
-  the limit, and counts as a failure, so the run still exits 1.
-- Closed stdin: every eval runs with stdin=subprocess.DEVNULL. An eval that
-  reads input() fails fast instead of waiting for a keystroke nobody can type —
-  the runner captures output, so a prompt would never be seen. This matches the
-  guidance in notes/reproducibility-practices.md ("use subprocess.run(...,
-  timeout=SECONDS)").
-- Exit codes: 0 when every discovered eval passed; 1 when any eval failed or
-  timed out, and 1 when no *_eval.py files were found at all — nothing ran, so
-  nothing passed, and an empty evals/ must not report green.
-- The --json-output FILE option writes an aggregated JSON summary with two keys:
-  "results" (one object per executed eval: path, returncode, stdout, stderr,
-  passed boolean, timed_out boolean) and "skipped" (the paths of the .py files
-  that were not run). For a timed-out eval returncode is null, timed_out is
-  true, and stdout/stderr hold whatever was captured before the kill.
 
 Notes and security
 

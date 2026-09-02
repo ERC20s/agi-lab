@@ -11,7 +11,7 @@ Note format rules
   - Title (H1, the note's short descriptive title)
   - Summary (2–4 sentences explaining the idea and main claim)
   - Motivation & Background (context and why the idea matters)
-  - Sources (numbered list with full URLs; at least one URL required)
+  - Sources (numbered list with full URLs; if present it must include at least one http(s) URL; older notes that lack a Sources section are accepted if they contain a URL elsewhere, but the meta-eval will emit a non-failing warning suggesting the URL be moved into Sources)
   - Reading list (optional annotated list of important references)
   - Eval (required): a short line linking to the matching evals/<topic>_eval.py
 
@@ -25,9 +25,13 @@ Pairing rule (notes and evals come in pairs)
 - Exemption: a meta-eval — an eval that checks the repository as a whole rather
   than one note — needs no note of its own. Meta-evals are listed by filename in
   the META_EVALS set of evals/note-coverage_eval.py; add a new one there.
-- evals/note-coverage_eval.py enforces all three rules and runs as part of
+- evals/note-coverage_eval.py enforces these rules and runs as part of
   `python evals/run_all.py`, so a note added without its eval, or an eval whose
-  note was renamed, turns the run red and names the topic.
+  note was renamed, turns the run red and names the topic. The repository also
+  includes evals/note-format_eval.py, a meta-eval that validates each note's
+  top-level sections and the Eval: reference; it emits warnings (not failures)
+  when a URL appears outside a missing Sources section to ease migration of old
+  notes.
 
 Minimal note template (copyable):
 
@@ -72,7 +76,7 @@ if __name__ == "__main__":
 PR checklist for contributors
 
 - Add or modify files only under notes/ or evals/ and follow the naming rules above.
-- Notes include the required sections and at least one URL in Sources.
+- Notes include the required sections; if an old note lacks a Sources section include at least one URL somewhere in the note (the new meta-eval will warn that it should be moved into Sources).
 - A new note ships with its evals/<topic>_eval.py in the same pull request (and a
   new eval ships with its note), so evals/note-coverage_eval.py stays green.
 - Evals include module docstring, a main() harness, and run locally with python3.
