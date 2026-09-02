@@ -129,6 +129,6 @@ payments:
 # (the VSD8A extension) and by nothing else.
 run:
   {
-    "evals": { "cmd": "python evals/run_all.py" },
+    "evals": { "cmd": "python evals/run_all.py --json-output evals/last_run.json" },
     "web": { "cmd": "python -m http.server 8000 --directory .", "port": 8000 }
   }
