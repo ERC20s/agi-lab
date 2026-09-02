@@ -8,6 +8,22 @@ Eval files
   on failure. It may print a short, human-readable summary to stdout and any
   diagnostics to stderr.
 
+Repository-wide eval: evals/note-coverage_eval.py
+
+- Most evals here validate one hard-coded note. note-coverage_eval.py validates
+  the set: it walks notes/*.md and evals/*_eval.py, derives the topic from each
+  filename and fails when a note has no evals/<topic>_eval.py, when an eval has
+  no notes/<topic>.md, or when an evals/... path named in a note's Eval section
+  does not exist. It prints one OK/FAIL line per topic, so a failure names the
+  file to fix.
+- It follows the same contract as every other eval (stdlib only, module
+  docstring, main() harness, exit 0 on success and non-zero on failure) and is
+  discovered by run_all.py like any other *_eval.py.
+- A meta-eval checks the repository rather than a single note, so it is exempt
+  from needing a note of its own. The exemptions are the filenames in the
+  META_EVALS set at the top of note-coverage_eval.py; add a new meta-eval's
+  filename there.
+
 Runner: evals/run_all.py
 
 - Purpose: discover and execute eval scripts under evals/ and report per-file
