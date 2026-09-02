@@ -14,6 +14,8 @@ Note format rules
   - Sources (numbered list with full URLs; at least one URL required)
   - Reading list (optional annotated list of important references)
   - Eval (optional): a short line linking to any matching evals/<topic>_eval.py
+- Section grammar the evals assume: a section label is a line starting at column 0 of the form `Name:` (text after the colon is the first line of that section) or a markdown heading line (`# Name` through `###### Name`); a section's content runs to the next such label. Indented or bulleted lines (`- ...`, `1. ...`) are content, never labels.
+- Consequences of that grammar: the Sources URL must sit inside the Sources section itself (a URL further down, in Reading list or Eval, does not count); Summary and Motivation & Background must have non-empty content; and Summary, Motivation & Background and Sources must appear in that order. Names are matched case-insensitively and `and` is accepted in place of `&`.
 
 Minimal note template (copyable):
 
