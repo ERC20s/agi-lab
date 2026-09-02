@@ -40,6 +40,10 @@ Eval script rules
 - Must run with python3 and use only the Python standard library.
 - Include a module-level docstring that explains purpose and usage.
 - Must exit with status 0 on success and non-zero on failure.
+- New per-note evals import the shared checks instead of copying them: put the
+  eval's own directory on sys.path and call `from note_checks import check_note`,
+  then `sys.exit(check_note("<topic>.md"))`. Change a check once, in
+  evals/note_checks.py, and every note eval picks it up.
 - Provide a safe main() harness; example:
 
 """Example eval harness
