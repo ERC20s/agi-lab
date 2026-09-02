@@ -35,7 +35,7 @@ EVAL_SUFFIX = "_eval.py"
 
 # Evals that check the repository as a whole, not a single note. They pair
 # with no note and must not be reported as orphans.
-META_EVALS = {"note-coverage_eval.py", "note-format_eval.py", "eval-conformance_eval.py"}
+META_EVALS = {"note-coverage_eval.py", "note-format_eval.py", "eval-conformance_eval.py", "stdlib_imports_eval.py"}
 
 # Files under notes/ that are not notes.
 NOT_NOTES = {"readme.md"}
