@@ -28,7 +28,7 @@ Runner: evals/run_all.py
 
 - Purpose: discover and execute eval scripts under evals/ and report per-file
   pass/fail status based on exit codes.
-- Usage: python evals/run_all.py [--json-output FILE]
+- Usage: python evals/run_all.py [--json-output FILE] [--timeout SECONDS]
 - Discovery rule: only files whose name ends in _eval.py are executed. The
   runner itself, __init__.py and __pycache__ are excluded as before. Any other
   .py file under evals/ — a shared helper module, a scratch file — is skipped:
@@ -38,9 +38,24 @@ Runner: evals/run_all.py
   Renaming a file to <topic>_eval.py puts it back in the run.
 - The runner executes each eval as a separate process (same Python interpreter),
   captures stdout/stderr and returns exit code 0 if all evals passed, else 1.
+- Per-eval timeout: each eval is given DEFAULT_TIMEOUT seconds (60) of wall
+  clock; --timeout SECONDS overrides it (any number greater than 0). An eval
+  that exceeds the limit is killed, reported as
+  `[TIMEOUT] slow_eval.py (exit=None)` with a stderr line naming the file and
+  the limit, and counts as a failure, so the run still exits 1.
+- Closed stdin: every eval runs with stdin=subprocess.DEVNULL. An eval that
+  reads input() fails fast instead of waiting for a keystroke nobody can type —
+  the runner captures output, so a prompt would never be seen. This matches the
+  guidance in notes/reproducibility-practices.md ("use subprocess.run(...,
+  timeout=SECONDS)").
+- Exit codes: 0 when every discovered eval passed; 1 when any eval failed or
+  timed out, and 1 when no *_eval.py files were found at all — nothing ran, so
+  nothing passed, and an empty evals/ must not report green.
 - The --json-output FILE option writes an aggregated JSON summary with two keys:
   "results" (one object per executed eval: path, returncode, stdout, stderr,
-  passed boolean) and "skipped" (the paths of the .py files that were not run).
+  passed boolean, timed_out boolean) and "skipped" (the paths of the .py files
+  that were not run). For a timed-out eval returncode is null, timed_out is
+  true, and stdout/stderr hold whatever was captured before the kill.
 
 Notes and security
 

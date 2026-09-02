@@ -9,10 +9,16 @@ Only files named *_eval.py are executed, matching CONTRIBUTING.md
 evals/ — a shared helper module, a scratch file — is skipped, listed as
 [SKIP] and never affects the exit code.
 
-Usage: python evals/run_all.py [--json-output FILE]
+Every eval runs with stdin closed (subprocess.DEVNULL) and under a wall-clock
+timeout (DEFAULT_TIMEOUT seconds, overridable with --timeout), so one eval that
+loops for ever or waits on input() cannot hang the whole run. A timed-out eval
+is reported as [TIMEOUT] and counts as a failure.
+
+Usage: python evals/run_all.py [--json-output FILE] [--timeout SECONDS]
 
 By default this prints a human-readable per-file report and exits
-with 0 if all evals passed, or 1 if any failed.
+with 0 if all evals passed, or 1 if any failed, timed out, or if no
+eval files were found at all.
 """
 import argparse
 import json
@@ -24,6 +30,11 @@ SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 # An eval is a named thing: CONTRIBUTING.md says evals/<topic>_eval.py.
 EVAL_SUFFIX = "_eval.py"
+
+# notes/reproducibility-practices.md tells contributors to bound a subprocess
+# with timeout=SECONDS; the runner holds itself to the same rule. Evals here are
+# meant to finish in well under a second, so a minute is a generous ceiling.
+DEFAULT_TIMEOUT = 60
 
 
 def discover_eval_files(root_dir):
@@ -58,30 +69,67 @@ def discover_eval_files(root_dir):
     return files, skipped
 
 
-def run_file(path):
+def _partial(stream):
+    """TimeoutExpired carries whatever was captured before the kill (or None)."""
+    if stream is None:
+        return ""
+    if isinstance(stream, bytes):
+        return stream.decode("utf-8", "replace")
+    return stream
+
+
+def run_file(path, timeout=DEFAULT_TIMEOUT):
+    rel = os.path.relpath(path, start=SCRIPT_DIR)
     try:
-        proc = subprocess.run([sys.executable, path], capture_output=True, text=True)
+        proc = subprocess.run(
+            [sys.executable, path],
+            capture_output=True,
+            text=True,
+            # An eval that reads stdin must fail, not wait for a keystroke that
+            # never comes: the runner's output is captured, so nobody sees a prompt.
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+        )
         return {
-            "path": os.path.relpath(path, start=SCRIPT_DIR),
+            "path": rel,
             "returncode": proc.returncode,
             "stdout": proc.stdout,
             "stderr": proc.stderr,
             "passed": proc.returncode == 0,
+            "timed_out": False,
+        }
+    except subprocess.TimeoutExpired as e:
+        return {
+            "path": rel,
+            "returncode": None,
+            "stdout": _partial(e.stdout),
+            "stderr": (
+                _partial(e.stderr)
+                + f"runner: {rel} exceeded the {timeout}s timeout and was killed\n"
+            ),
+            "passed": False,
+            "timed_out": True,
         }
     except Exception as e:
         return {
-            "path": os.path.relpath(path, start=SCRIPT_DIR),
+            "path": rel,
             "returncode": None,
             "stdout": "",
             "stderr": f"runner error: {e}",
             "passed": False,
+            "timed_out": False,
         }
 
 
 def print_report(results):
     all_passed = True
     for r in results:
-        status = "PASS" if r.get("passed") else "FAIL"
+        if r.get("timed_out"):
+            status = "TIMEOUT"
+        elif r.get("passed"):
+            status = "PASS"
+        else:
+            status = "FAIL"
         code = r.get("returncode")
         print(f"[{status}] {r.get('path')} (exit={code})")
         if r.get("stdout"):
@@ -108,24 +156,48 @@ def print_skipped(skipped):
         print(f"[SKIP] {path} (not *{EVAL_SUFFIX})")
 
 
+def positive_timeout(value):
+    """--timeout accepts a number of seconds greater than zero."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"not a number of seconds: {value!r}")
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("timeout must be greater than 0 seconds")
+    return seconds
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run all evals under evals/")
     parser.add_argument("--json-output", help="Write JSON summary to FILE")
+    parser.add_argument(
+        "--timeout",
+        type=positive_timeout,
+        default=DEFAULT_TIMEOUT,
+        metavar="SECONDS",
+        help=(
+            "Wall-clock limit for each eval, in seconds "
+            f"(default: {DEFAULT_TIMEOUT}). An eval that exceeds it is killed "
+            "and reported as [TIMEOUT]."
+        ),
+    )
     args = parser.parse_args()
 
     files, skipped_paths = discover_eval_files(SCRIPT_DIR)
     skipped = [os.path.relpath(p, start=SCRIPT_DIR) for p in skipped_paths]
 
     if not files:
-        print(f"No eval files (*{EVAL_SUFFIX}) found under evals/")
+        # Nothing ran, so nothing passed: a repository whose evals all vanished
+        # must not report green.
+        print(f"No eval files (*{EVAL_SUFFIX}) found under evals/ — nothing was run.")
         print_skipped(skipped)
         if args.json_output:
             write_json(args.json_output, [], skipped)
-        sys.exit(0)
+        sys.exit(1)
 
     results = []
     for f in files:
-        results.append(run_file(f))
+        results.append(run_file(f, timeout=args.timeout))
 
     all_passed = print_report(results)
     print_skipped(skipped)
