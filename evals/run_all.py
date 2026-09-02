@@ -25,8 +25,12 @@ import json
 import os
 import subprocess
 import sys
+import datetime
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+
+# Runner version for the summary metadata. Bump when changing output schema.
+RUNNER_VERSION = "0.1"
 
 # An eval is a named thing: CONTRIBUTING.md says evals/<topic>_eval.py.
 EVAL_SUFFIX = "_eval.py"
@@ -192,7 +196,7 @@ def main():
         print(f"No eval files (*{EVAL_SUFFIX}) found under evals/ — nothing was run.")
         print_skipped(skipped)
         if args.json_output:
-            write_json(args.json_output, [], skipped)
+            write_json(args.json_output, [], skipped, timeout_seconds=args.timeout)
         sys.exit(1)
 
     results = []
@@ -203,15 +207,37 @@ def main():
     print_skipped(skipped)
 
     if args.json_output:
-        write_json(args.json_output, results, skipped)
+        write_json(args.json_output, results, skipped, timeout_seconds=args.timeout)
 
     sys.exit(0 if all_passed else 1)
 
 
-def write_json(path, results, skipped):
+def write_json(path, results, skipped, timeout_seconds=None):
+    """Write the JSON output containing results, skipped and a summary object.
+
+    The summary includes:
+    - all_passed (bool): True only if there was at least one result and all passed
+    - total (int), passed (int), failed (int), timed_out (int)
+    - timeout_seconds (float or null): the per-eval timeout used (if known)
+    - runner_version (string) and timestamp (ISO8601 UTC string)
+    """
     try:
+        total = len(results)
+        passed = sum(1 for r in results if r.get("passed"))
+        timed_out = sum(1 for r in results if r.get("timed_out"))
+        all_passed = (total > 0) and (passed == total)
+        summary = {
+            "all_passed": all_passed,
+            "total": total,
+            "passed": passed,
+            "failed": total - passed,
+            "timed_out": timed_out,
+            "timeout_seconds": float(timeout_seconds) if timeout_seconds is not None else None,
+            "runner_version": RUNNER_VERSION,
+            "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+        }
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"results": results, "skipped": skipped}, fh, indent=2)
+            json.dump({"results": results, "skipped": skipped, "summary": summary}, fh, indent=2)
         print(f"Wrote JSON summary to {path}")
     except Exception as e:
         print(f"Failed to write JSON output: {e}")
