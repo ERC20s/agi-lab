@@ -28,6 +28,11 @@ Pairing rule (notes and evals come in pairs)
 - evals/note-coverage_eval.py enforces all three rules and runs as part of
   `python evals/run_all.py`, so a note added without its eval, or an eval whose
   note was renamed, turns the run red and names the topic.
+- evals/note-format_eval.py is an additional repository-wide meta-eval that
+  validates each note's internal structure (H1, Summary, Motivation & Background,
+  Sources with at least one URL bounded to the Sources section, and an Eval line
+  pointing at evals/<topic>_eval.py). It is listed in META_EVALS and runs with
+  the other evals.
 
 Minimal note template (copyable):
 
