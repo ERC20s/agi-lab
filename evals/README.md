@@ -22,7 +22,20 @@ Repository-wide evals
   "Sources:" section but contains a URL elsewhere the meta-eval emits a
   non-failing warning suggesting the URL be moved into Sources; when a
   Sources: section is present it must include at least one http(s) URL.
-- Both files follow the usual eval contract (stdlib only, module docstring,
+- runner_eval.py is the self-test for the runner. It loads evals/run_all.py by
+  path (importlib.util.spec_from_file_location, so no new import name) and
+  checks its behaviour against throwaway fixtures in a temporary directory:
+  discover_eval_files runs only *_eval.py and skips other .py files while
+  ignoring __init__.py and __pycache__/; run_file reports a non-zero exit as a
+  failure with a numeric duration_seconds; a sleeping script under a 0.5s
+  timeout comes back timed_out with "exceeded the" in stderr; a script calling
+  input() fails instead of hanging; write_json produces parsable JSON whose
+  summary carries all_passed, total, passed, failed, timed_out, timeout_seconds,
+  total_duration_seconds, runner_version and timestamp; and positive_timeout
+  rejects "0", "-1" and "abc". It prints one OK/FAIL line per check. Because it
+  names run_all.py's functions directly, a future rename in the runner has to be
+  made here too.
+- These files follow the usual eval contract (stdlib only, module docstring,
   main() harness, exit 0 on success) and are discovered and run by
   evals/run_all.py like any other *_eval.py. Add a new meta-eval's filename to
   the META_EVALS set in evals/note-coverage_eval.py so it is exempt from the
