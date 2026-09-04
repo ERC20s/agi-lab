@@ -22,7 +22,13 @@ against throwaway fixtures built with tempfile:
   runner passes stdin=subprocess.DEVNULL;
 - write_json writes parsable JSON whose summary carries all_passed, total,
   passed, failed, timed_out, timeout_seconds, total_duration_seconds,
-  runner_version and timestamp;
+  runner_version and timestamp, and returns True;
+- write_json creates a missing parent directory for the output file;
+- write_json returns False (it does not raise) when the output path is
+  impossible, e.g. its parent is an existing regular file;
+- a failed write leaves an existing, valid last_run.json byte-for-byte intact
+  and leaves no temporary file behind, because the payload is serialised first
+  and swapped in with os.replace();
 - positive_timeout accepts "1.5" and rejects "0", "-1" and "abc".
 
 Fixtures are created in a temporary directory inside the repository root (so
@@ -192,13 +198,15 @@ def check_write_json(runner):
 
     with temp_workspace() as tmp:
         out = os.path.join(tmp, "last_run.json")
-        runner.write_json(out, results, ["helper.py"], timeout_seconds=1.5)
+        returned = runner.write_json(out, results, ["helper.py"], timeout_seconds=1.5)
         if not os.path.isfile(out):
             return False, "write_json wrote no file at %s" % out
         with open(out, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
 
     problems = []
+    if returned is not True:
+        problems.append("write_json returned %r on success, expected True" % returned)
     for key in ("results", "skipped", "summary"):
         if key not in payload:
             problems.append("top-level key %r is missing" % key)
@@ -246,6 +254,115 @@ def check_write_json(runner):
     )
 
 
+def sample_results():
+    """One passing result, enough for a valid summary."""
+    return [
+        {
+            "path": "alpha_eval.py",
+            "returncode": 0,
+            "stdout": "ok\n",
+            "stderr": "",
+            "passed": True,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+        }
+    ]
+
+
+def check_write_json_creates_parent(runner):
+    """--json-output may name a directory that does not exist yet."""
+    with temp_workspace() as tmp:
+        out = os.path.join(tmp, "reports", "nested", "last_run.json")
+        returned = runner.write_json(out, sample_results(), [], timeout_seconds=1.0)
+        exists = os.path.isfile(out)
+        parsable = False
+        if exists:
+            try:
+                with open(out, "r", encoding="utf-8") as fh:
+                    json.load(fh)
+                parsable = True
+            except Exception:
+                parsable = False
+
+    problems = []
+    if returned is not True:
+        problems.append("write_json returned %r, expected True" % returned)
+    if not exists:
+        problems.append("no file was written under the missing parent directory")
+    elif not parsable:
+        problems.append("the file written under the new directory is not valid JSON")
+    if problems:
+        return False, "; ".join(problems)
+    return True, "a missing parent directory is created and the summary lands in it"
+
+
+def check_write_json_failure_returns_false(runner):
+    """An impossible output path is reported, not raised."""
+    with temp_workspace() as tmp:
+        blocker = write_script(tmp, "blocker", "not a directory\n")
+        out = os.path.join(blocker, "last_run.json")
+        try:
+            returned = runner.write_json(out, sample_results(), [], timeout_seconds=1.0)
+        except Exception as exc:
+            return False, "write_json raised %s instead of returning False: %s" % (
+                type(exc).__name__,
+                exc,
+            )
+        wrote_anything = os.path.isfile(out)
+
+    problems = []
+    if returned is not False:
+        problems.append("write_json returned %r for an impossible path, expected False" % returned)
+    if wrote_anything:
+        problems.append("a file appeared at %s, which should not be writable" % out)
+    if problems:
+        return False, "; ".join(problems)
+    return True, "a path whose parent is a regular file returns False without raising"
+
+
+def check_write_json_leaves_existing_file_intact(runner):
+    """A failed write must not cost the group its previous last_run.json."""
+    with temp_workspace() as tmp:
+        out = os.path.join(tmp, "last_run.json")
+        first = runner.write_json(out, sample_results(), [], timeout_seconds=1.0)
+        with open(out, "r", encoding="utf-8") as fh:
+            before = fh.read()
+
+        # A payload json.dumps cannot serialise: the failure happens before the
+        # target is touched, which is the point of writing to a temp file first.
+        poisoned = sample_results()
+        poisoned[0]["stdout"] = {1, 2, 3}
+        try:
+            second = runner.write_json(out, poisoned, [], timeout_seconds=1.0)
+        except Exception as exc:
+            return False, "write_json raised %s instead of returning False: %s" % (
+                type(exc).__name__,
+                exc,
+            )
+
+        with open(out, "r", encoding="utf-8") as fh:
+            after = fh.read()
+        leftovers = [n for n in os.listdir(tmp) if n != "last_run.json"]
+
+    problems = []
+    if first is not True:
+        problems.append("the first write returned %r, expected True" % first)
+    if second is not False:
+        problems.append("the failed write returned %r, expected False" % second)
+    if after != before:
+        problems.append("last_run.json changed after a failed write")
+    else:
+        try:
+            json.loads(after)
+        except Exception as exc:
+            problems.append("last_run.json is no longer valid JSON: %s" % exc)
+    if leftovers:
+        problems.append("temporary files were left behind: %s" % sorted(leftovers))
+    if problems:
+        return False, "; ".join(problems)
+    return True, "a failed write leaves the previous summary intact and no temp file behind"
+
+
 def check_positive_timeout(runner):
     """--timeout only accepts a number of seconds greater than zero."""
     problems = []
@@ -274,6 +391,9 @@ CHECKS = (
     ("run_file timeout", check_timeout),
     ("run_file closed stdin", check_stdin_closed),
     ("write_json schema", check_write_json),
+    ("write_json creates parent", check_write_json_creates_parent),
+    ("write_json reports failure", check_write_json_failure_returns_false),
+    ("write_json is atomic", check_write_json_leaves_existing_file_intact),
     ("positive_timeout", check_positive_timeout),
 )
 

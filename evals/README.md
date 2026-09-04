@@ -31,7 +31,11 @@ Repository-wide evals
   timeout comes back timed_out with "exceeded the" in stderr; a script calling
   input() fails instead of hanging; write_json produces parsable JSON whose
   summary carries all_passed, total, passed, failed, timed_out, timeout_seconds,
-  total_duration_seconds, runner_version and timestamp; and positive_timeout
+  total_duration_seconds, runner_version and timestamp and returns True;
+  write_json creates a missing parent directory, returns False instead of
+  raising when the output path is impossible (its parent is a regular file), and
+  leaves an existing valid last_run.json byte-for-byte intact with no temporary
+  file behind when a write fails; and positive_timeout
   rejects "0", "-1" and "abc". It prints one OK/FAIL line per check. Because it
   names run_all.py's functions directly, a future rename in the runner has to be
   made here too.
@@ -59,6 +63,17 @@ Runner: evals/run_all.py
   total_duration_seconds alongside all_passed, total, passed, failed,
   timed_out, timeout_seconds, runner_version and timestamp. That schema change
   is why runner_version is "0.2"; a consumer pinned to "0.1" should be updated.
+- A failed --json-output write now fails the run. write_json returns True or
+  False (the reason goes to stderr, never an exception), and when a summary was
+  asked for and not written the runner exits non-zero even though every eval
+  passed — a run whose summary nobody can read must not report green. The write
+  is atomic: the payload is serialised in memory, written to a temporary file in
+  the target's own directory and os.replace()d over it, and a missing parent
+  directory named on --json-output is created first. So evals/last_run.json is
+  either the previous run or this one, never a truncated file. The JSON schema
+  does not change, so runner_version stays "0.2". The trade-off: a caller that
+  passes --json-output but does not care about the file now sees exit 1 when the
+  path is unwritable.
 
 Notes and security
 

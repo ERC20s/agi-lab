@@ -25,12 +25,19 @@ Usage: python evals/run_all.py [--json-output FILE] [--timeout SECONDS]
 By default this prints a human-readable per-file report and exits
 with 0 if all evals passed, or 1 if any failed, timed out, or if no
 eval files were found at all.
+
+A requested --json-output that could not be written is a failed run: the
+summary is what other tools read, so a run that never wrote it must not
+report green. The file is also replaced atomically (written next to the
+target, then os.replace()d over it), so a failure mid-write leaves the
+previous evals/last_run.json intact rather than a truncated one.
 """
 import argparse
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import datetime
 
@@ -235,6 +242,7 @@ def main():
         print_skipped(skipped)
         if args.json_output:
             write_json(args.json_output, [], skipped, timeout_seconds=args.timeout)
+        # Already a failed run; a failed summary write cannot make it worse.
         sys.exit(1)
 
     results = []
@@ -244,10 +252,19 @@ def main():
     all_passed = print_report(results)
     print_skipped(skipped)
 
+    json_written = True
     if args.json_output:
-        write_json(args.json_output, results, skipped, timeout_seconds=args.timeout)
+        json_written = write_json(
+            args.json_output, results, skipped, timeout_seconds=args.timeout
+        )
+        if not json_written:
+            print(
+                "runner: a JSON summary was requested but not written — "
+                "failing the run",
+                file=sys.stderr,
+            )
 
-    sys.exit(0 if all_passed else 1)
+    sys.exit(0 if (all_passed and json_written) else 1)
 
 
 def write_json(path, results, skipped, timeout_seconds=None):
@@ -263,28 +280,67 @@ def write_json(path, results, skipped, timeout_seconds=None):
 
     Each entry of results also carries duration_seconds (float), the
     wall-clock time that eval took.
+
+    Returns True when the file is on disk, False when it is not — the reason
+    goes to stderr. Nothing is raised: a caller decides what a failed write
+    means (main() makes it a non-zero exit).
+
+    The write is atomic. The payload is serialised in memory first, written to
+    a temporary file in the target's own directory, flushed, and only then
+    os.replace()d over the target. So the file at `path` is either the previous
+    run or this one, never half of either.
     """
+    total = len(results)
+    passed = sum(1 for r in results if r.get("passed"))
+    timed_out = sum(1 for r in results if r.get("timed_out"))
+    all_passed = (total > 0) and (passed == total)
+    summary = {
+        "all_passed": all_passed,
+        "total": total,
+        "passed": passed,
+        "failed": total - passed,
+        "timed_out": timed_out,
+        "timeout_seconds": float(timeout_seconds) if timeout_seconds is not None else None,
+        "total_duration_seconds": total_duration_seconds(results),
+        "runner_version": RUNNER_VERSION,
+        "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+    }
+
+    tmp_path = None
     try:
-        total = len(results)
-        passed = sum(1 for r in results if r.get("passed"))
-        timed_out = sum(1 for r in results if r.get("timed_out"))
-        all_passed = (total > 0) and (passed == total)
-        summary = {
-            "all_passed": all_passed,
-            "total": total,
-            "passed": passed,
-            "failed": total - passed,
-            "timed_out": timed_out,
-            "timeout_seconds": float(timeout_seconds) if timeout_seconds is not None else None,
-            "total_duration_seconds": total_duration_seconds(results),
-            "runner_version": RUNNER_VERSION,
-            "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
-        }
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"results": results, "skipped": skipped, "summary": summary}, fh, indent=2)
+        # Serialise before touching the filesystem: an unserialisable payload
+        # must not cost us the existing file.
+        payload = json.dumps(
+            {"results": results, "skipped": skipped, "summary": summary}, indent=2
+        )
+
+        directory = os.path.dirname(os.path.abspath(path))
+        # A named parent that does not exist yet is created; an existing one is
+        # left alone. os.makedirs raises here if the parent is a regular file,
+        # which is exactly the failure this function is meant to report.
+        os.makedirs(directory, exist_ok=True)
+
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=os.path.basename(path) + ".", suffix=".tmp", dir=directory
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
         print(f"Wrote JSON summary to {path}")
+        return True
     except Exception as e:
-        print(f"Failed to write JSON output: {e}")
+        print(f"Failed to write JSON output to {path}: {e}", file=sys.stderr)
+        return False
+    finally:
+        # A temporary file only survives if the replace never happened.
+        if tmp_path is not None:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
