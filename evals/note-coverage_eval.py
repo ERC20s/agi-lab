@@ -20,7 +20,21 @@ Topic matching is exact and case-sensitive on the dash-separated filename:
 notes/chain-of-thought.md pairs with evals/chain-of-thought_eval.py and with
 nothing else.
 
-Returns 0 on success, 1 on a coverage failure, 2 if the layout cannot be read.
+The "Eval:" section is read in both of the styles CONTRIBUTING.md allows: the
+label and the text on one line ("Eval: See evals/foo_eval.py") and the label on
+its own line with the reference below it. EVAL_HEADER_RE matches the label and
+its colon only - never the rest of the line - so the section body starts with
+whatever was written after the colon and an inline reference is scanned like any
+other. This mirrors the fix already made in note-format_eval.py.
+
+Before any note is judged the script runs self_check(), a set of fixture strings
+that exercise eval_section (inline Eval line, block Eval header with the
+reference below, header at end of file, inline header followed by a later
+section, missing header). A wrong extraction fails the run instead of quietly
+passing notes whose references were never looked at.
+
+Returns 0 on success, 1 on a coverage failure, 2 if the layout cannot be read or
+the self-check fails.
 """
 
 import os
@@ -44,8 +58,11 @@ NOT_NOTES = {"readme.md"}
 EVAL_REF_RE = re.compile(r"evals/[A-Za-z0-9._-]+\.py")
 
 # The "Eval:" section header, and the shape of any following section header
-# ("Sources:", "Reading list:", or a new H1) that ends it.
-EVAL_HEADER_RE = re.compile(r"^Eval\b[^\n]*$", re.MULTILINE)
+# ("Sources:", "Reading list:", or a new H1) that ends it. The header matcher
+# covers the LABEL and its colon only, so text[m.end():] already begins with
+# whatever follows "Eval:" on the same line; an inline reference is therefore
+# part of the section body instead of being skipped past.
+EVAL_HEADER_RE = re.compile(r"^Eval\b[ \t]*:?[ \t]*", re.MULTILINE)
 SECTION_END_RE = re.compile(r"^(#\s|[A-Z][A-Za-z &]*:\s*$)", re.MULTILINE)
 
 
@@ -90,6 +107,65 @@ def eval_section(text):
     return rest[: end.start()] if end else rest
 
 
+def section_refs(text):
+    """Return the sorted evals/... paths named in a note's Eval: section."""
+    return sorted(set(EVAL_REF_RE.findall(eval_section(text))))
+
+
+# (label, note text, expected sorted refs, expected stripped section body)
+SELF_CHECK_CASES = (
+    (
+        "inline Eval line",
+        "# T\n\nSummary: s\n\nEval: See evals/t_eval.py\n",
+        ["evals/t_eval.py"],
+        "See evals/t_eval.py",
+    ),
+    (
+        "block Eval header with the reference below",
+        "# T\n\nEval:\n\n- See evals/t_eval.py\n",
+        ["evals/t_eval.py"],
+        "- See evals/t_eval.py",
+    ),
+    (
+        "Eval header at end of file",
+        "# T\n\nEval:",
+        [],
+        "",
+    ),
+    (
+        "inline Eval followed by a later section",
+        "# T\n\nEval: See evals/t_eval.py\n\nSources:\n- https://example.com/x_eval.py\n",
+        ["evals/t_eval.py"],
+        "See evals/t_eval.py",
+    ),
+    (
+        "missing Eval header",
+        "# T\n\nSummary: s\n\nSources:\n- https://example.com\n",
+        [],
+        "",
+    ),
+)
+
+
+def self_check():
+    """Exercise eval_section on fixtures. Return a list of failure strings."""
+    failures = []
+    for label, text, expected_refs, expected_body in SELF_CHECK_CASES:
+        try:
+            body = eval_section(text)
+            refs = section_refs(text)
+        except Exception as exc:  # a broken regex must not look like a note problem
+            failures.append("%s: eval_section raised %r" % (label, exc))
+            continue
+        if body.strip() != expected_body:
+            failures.append("%s: expected body %r, got %r"
+                            % (label, expected_body, body.strip()))
+        if refs != expected_refs:
+            failures.append("%s: expected refs %r, got %r"
+                            % (label, expected_refs, refs))
+    return failures
+
+
 def check_note_references(topic, path, problems):
     """Every evals/... path a note names in its Eval: section must exist."""
     try:
@@ -98,7 +174,7 @@ def check_note_references(topic, path, problems):
         print("FAIL: %s - could not read notes/%s.md: %s" % (topic, topic, exc))
         problems.append(topic)
         return
-    refs = sorted(set(EVAL_REF_RE.findall(eval_section(text))))
+    refs = section_refs(text)
     for ref in refs:
         target = os.path.join(ROOT, ref.replace("/", os.sep))
         if not os.path.isfile(target):
@@ -108,6 +184,15 @@ def check_note_references(topic, path, problems):
 
 
 def main():
+    check_failures = self_check()
+    if check_failures:
+        print("ERROR: eval_section self-check failed - not judging notes with a "
+              "broken extractor", file=sys.stderr)
+        for failure in check_failures:
+            print("  - %s" % failure, file=sys.stderr)
+        return 2
+    print("self-check: %d eval_section case(s) OK" % len(SELF_CHECK_CASES))
+
     for label, path in (("notes/", NOTES_DIR), ("evals/", EVALS_DIR)):
         if not os.path.isdir(path):
             print("ERROR: expected directory %s at the repository root" % label,
