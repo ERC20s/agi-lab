@@ -15,13 +15,30 @@ Repository-wide evals
   no notes/<topic>.md, or when an evals/... path named in a note's Eval section
   does not exist. It prints one OK/FAIL line per topic, so a failure names the
   file to fix.
-- note-format_eval.py is a new meta-eval that checks each note's top-level
+- note-format_eval.py is a meta-eval that checks each note's top-level
   sections and that the Eval: section points at an existing eval script. It
   reuses the same section-boundary and eval-path heuristics as
   note-coverage_eval.py to reduce false positives. When a note lacks an explicit
   "Sources:" section but contains a URL elsewhere the meta-eval emits a
   non-failing warning suggesting the URL be moved into Sources; when a
   Sources: section is present it must include at least one http(s) URL.
+- Section bodies are read in both of the styles CONTRIBUTING.md's template
+  allows. The header regexes (SUMMARY_HEADER_RE, MOTIVATION_HEADER_RE,
+  SOURCES_HEADER_RE, EVAL_HEADER_RE) match the label and its colon only, never
+  the rest of the line, so extract_section returns the remainder of the header
+  line plus everything up to the next section header. The inline form
+  ("Summary: two sentences ...") that every note in notes/ uses therefore passes,
+  where before the body was cut at the end of the header line and the note was
+  failed with "empty Summary section". A section whose inline remainder and body
+  are both blank is still reported as empty, so a genuinely missing Summary
+  still fails.
+- Before any note is judged, note-format_eval.py runs self_check() over
+  SELF_CHECK_CASES: fixture strings covering an inline header, a header with the
+  body below it, a header at the end of the file, an inline header with more
+  lines under it, a missing header, and the inline forms of Sources, Motivation
+  & Background and Eval. A wrong extraction prints the expected and actual body
+  to stderr and exits 2 (the same code used for layout errors) instead of
+  blaming the notes.
 - runner_eval.py is the self-test for the runner. It loads evals/run_all.py by
   path (importlib.util.spec_from_file_location, so no new import name) and
   checks its behaviour against throwaway fixtures in a temporary directory:
