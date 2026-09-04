@@ -8,6 +8,36 @@ Eval files
   on failure. It may print a short, human-readable summary to stdout and any
   diagnostics to stderr.
 
+Per-note evals
+
+- chain-of-thought_eval.py, in-context-learning_eval.py and
+  reproducibility-practices_eval.py each check one note: an H1 title, a Summary
+  section, and a Sources section that itself carries at least one http(s) URL.
+- Their Sources check now uses the same shape as the meta-evals. The header
+  matcher is `^Sources\b[ \t]*:?[ \t]*` (MULTILINE, and IGNORECASE so it agrees
+  with has_section()), which matches the label and its colon only. An inline
+  "Sources: https://example.org/paper" line — the style CONTRIBUTING.md's
+  template shows — is therefore read as a section with a body, where the old
+  `^Sources:\s*$` matcher demanded the line end at the colon and failed the note
+  with "'Sources' section does not contain an http(s):// URL" while
+  has_section() reported the section present.
+- The body is bounded by SECTION_END_RE (`^(#\s|[A-Z][A-Za-z &]*:\s*$)`), so
+  only the Sources section is searched. Before, the search ran to the end of the
+  file and an empty Sources section passed on any URL further down the note —
+  a Reading list entry, for example.
+- Each of the three scripts runs self_check() before it reads its note: fixture
+  strings for an inline Sources line, a block Sources list, an empty Sources
+  section with a URL in a later section, a note with no Sources section, a
+  Sources section whose URL sits under a later H1, a header at the end of the
+  file, a missing header, and an inline body continued on the next line. A wrong
+  extraction prints expected vs actual to stderr and exits 2 instead of judging
+  the note.
+- Known limitation, shared with the meta-evals: SECTION_END_RE would cut a
+  Sources body short if a source line itself began with a capitalised word and a
+  colon on its own line. Keeping one regex shape across the evals is the
+  deliberate trade-off (the shared-module route was voted down in #28, so each
+  script stays self-contained).
+
 Repository-wide evals
 
 - note-coverage_eval.py validates the set: it walks notes/*.md and evals/*_eval.py, derives the topic from each
