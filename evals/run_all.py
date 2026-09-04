@@ -14,6 +14,12 @@ timeout (DEFAULT_TIMEOUT seconds, overridable with --timeout), so one eval that
 loops for ever or waits on input() cannot hang the whole run. A timed-out eval
 is reported as [TIMEOUT] and counts as a failure.
 
+Every eval is also timed: each result carries duration_seconds (wall-clock
+seconds, sub-second precision, measured around the subprocess and so including
+interpreter start-up), and the JSON summary carries total_duration_seconds.
+Evals here are meant to stay small and fast; the numbers are how a slow one
+gets noticed. Schema change, so RUNNER_VERSION is "0.2".
+
 Usage: python evals/run_all.py [--json-output FILE] [--timeout SECONDS]
 
 By default this prints a human-readable per-file report and exits
@@ -25,12 +31,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 import datetime
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 # Runner version for the summary metadata. Bump when changing output schema.
-RUNNER_VERSION = "0.1"
+# 0.2 added duration_seconds per result and summary.total_duration_seconds.
+RUNNER_VERSION = "0.2"
 
 # An eval is a named thing: CONTRIBUTING.md says evals/<topic>_eval.py.
 EVAL_SUFFIX = "_eval.py"
@@ -83,7 +91,19 @@ def _partial(stream):
 
 
 def run_file(path, timeout=DEFAULT_TIMEOUT):
+    """Run one eval and return its result dict.
+
+    The result always carries duration_seconds: the wall-clock time spent on
+    the subprocess, measured with time.perf_counter() and rounded to
+    milliseconds. A timed-out or crashed eval is timed too, so a slow failure
+    is as visible as a slow pass.
+    """
     rel = os.path.relpath(path, start=SCRIPT_DIR)
+    started = time.perf_counter()
+
+    def elapsed():
+        return round(time.perf_counter() - started, 3)
+
     try:
         proc = subprocess.run(
             [sys.executable, path],
@@ -101,6 +121,7 @@ def run_file(path, timeout=DEFAULT_TIMEOUT):
             "stderr": proc.stderr,
             "passed": proc.returncode == 0,
             "timed_out": False,
+            "duration_seconds": elapsed(),
         }
     except subprocess.TimeoutExpired as e:
         return {
@@ -113,6 +134,7 @@ def run_file(path, timeout=DEFAULT_TIMEOUT):
             ),
             "passed": False,
             "timed_out": True,
+            "duration_seconds": elapsed(),
         }
     except Exception as e:
         return {
@@ -122,6 +144,7 @@ def run_file(path, timeout=DEFAULT_TIMEOUT):
             "stderr": f"runner error: {e}",
             "passed": False,
             "timed_out": False,
+            "duration_seconds": elapsed(),
         }
 
 
@@ -135,7 +158,9 @@ def print_report(results):
         else:
             status = "FAIL"
         code = r.get("returncode")
-        print(f"[{status}] {r.get('path')} (exit={code})")
+        duration = r.get("duration_seconds")
+        timing = f", {duration:.3f}s" if isinstance(duration, (int, float)) else ""
+        print(f"[{status}] {r.get('path')} (exit={code}{timing})")
         if r.get("stdout"):
             out = r["stdout"].rstrip()
             if out:
@@ -151,7 +176,20 @@ def print_report(results):
         print("")
         if not r.get("passed"):
             all_passed = False
+    total_duration = total_duration_seconds(results)
+    if results:
+        print(f"{len(results)} eval(s) in {total_duration:.3f}s total")
     return all_passed
+
+
+def total_duration_seconds(results):
+    """Sum the per-eval durations, ignoring any result that has none."""
+    total = 0.0
+    for r in results:
+        duration = r.get("duration_seconds")
+        if isinstance(duration, (int, float)):
+            total += float(duration)
+    return round(total, 3)
 
 
 def print_skipped(skipped):
@@ -219,7 +257,12 @@ def write_json(path, results, skipped, timeout_seconds=None):
     - all_passed (bool): True only if there was at least one result and all passed
     - total (int), passed (int), failed (int), timed_out (int)
     - timeout_seconds (float or null): the per-eval timeout used (if known)
+    - total_duration_seconds (float): the sum of every result's
+      duration_seconds, 0.0 when nothing ran
     - runner_version (string) and timestamp (ISO8601 UTC string)
+
+    Each entry of results also carries duration_seconds (float), the
+    wall-clock time that eval took.
     """
     try:
         total = len(results)
@@ -233,6 +276,7 @@ def write_json(path, results, skipped, timeout_seconds=None):
             "failed": total - passed,
             "timed_out": timed_out,
             "timeout_seconds": float(timeout_seconds) if timeout_seconds is not None else None,
+            "total_duration_seconds": total_duration_seconds(results),
             "runner_version": RUNNER_VERSION,
             "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
         }
