@@ -27,6 +27,13 @@ its colon only - never the rest of the line - so the section body starts with
 whatever was written after the colon and an inline reference is scanned like any
 other. This mirrors the fix already made in note-format_eval.py.
 
+The section ends at the next section header: an H1/H2 line, a bare label alone on
+its line (digits, hyphens, commas, slashes, apostrophes and parentheses allowed,
+so "Practical suggestions (short checklist):" ends it) or one of the labels
+CONTRIBUTING.md names written inline with text after the colon ("Sources: see
+evals/z_eval.py"). References written outside the Eval section are therefore not
+scanned.
+
 Before any note is judged the script runs self_check(), a set of fixture strings
 that exercise eval_section (inline Eval line, block Eval header with the
 reference below, header at end of file, inline header followed by a later
@@ -63,7 +70,38 @@ EVAL_REF_RE = re.compile(r"evals/[A-Za-z0-9._-]+\.py")
 # whatever follows "Eval:" on the same line; an inline reference is therefore
 # part of the section body instead of being skipped past.
 EVAL_HEADER_RE = re.compile(r"^Eval\b[ \t]*:?[ \t]*", re.MULTILINE)
-SECTION_END_RE = re.compile(r"^(#\s|[A-Z][A-Za-z &]*:\s*$)", re.MULTILINE)
+
+# A section ends at the next section header. Three shapes count, and the
+# pattern is kept identical in every eval on purpose:
+#   - a markdown heading line ("# ...", "## ...");
+#   - a bare label alone on its line, which may carry digits, hyphens, commas,
+#     slashes, apostrophes and parentheses ("Practical suggestions (short
+#     checklist):");
+#   - one of the labels CONTRIBUTING.md names, written inline with text after
+#     the colon ("Sources: see evals/z_eval.py in the repo").
+# The inline form is deliberately restricted to the known labels so an ordinary
+# prose line that happens to end in a colon does not cut a section short.
+SECTION_LABELS = ("Summary", r"Motivation[ \t]*&[ \t]*Background", "Sources", "Reading list", "Eval")
+SECTION_END_RE = re.compile(
+    r"^(?:#\s"
+    r"|[A-Z][A-Za-z0-9 &,'()/-]*:[ \t]*$"
+    r"|(?:" + "|".join(SECTION_LABELS) + r")\b[ \t]*:)",
+    re.MULTILINE,
+)
+
+
+def section_end(rest):
+    """Return the first section header in `rest`, ignoring one at offset 0.
+
+    A body starts immediately after its own header, so a header matching at
+    offset 0 would end the section where it begins and always yield an empty
+    body.
+    """
+    for m in SECTION_END_RE.finditer(rest):
+        if m.start() == 0:
+            continue
+        return m
+    return None
 
 
 def read_text(path):
@@ -103,7 +141,7 @@ def eval_section(text):
     if not m:
         return ""
     rest = text[m.end():]
-    end = SECTION_END_RE.search(rest)
+    end = section_end(rest)
     return rest[: end.start()] if end else rest
 
 
@@ -143,6 +181,19 @@ SELF_CHECK_CASES = (
         "# T\n\nSummary: s\n\nSources:\n- https://example.com\n",
         [],
         "",
+    ),
+    (
+        "inline Eval followed by an inline Sources header",
+        "# T\n\nEval: See evals/t_eval.py\nSources: see evals/z_eval.py in the repo\n",
+        ["evals/t_eval.py"],
+        "See evals/t_eval.py",
+    ),
+    (
+        "Eval section ended by a punctuated bare header",
+        "# T\n\nEval:\n- See evals/t_eval.py\n\nPractical suggestions (short checklist):\n"
+        "- also evals/z_eval.py\n",
+        ["evals/t_eval.py"],
+        "- See evals/t_eval.py",
     ),
 )
 

@@ -21,22 +21,40 @@ Per-note evals
   `^Sources:\s*$` matcher demanded the line end at the colon and failed the note
   with "'Sources' section does not contain an http(s):// URL" while
   has_section() reported the section present.
-- The body is bounded by SECTION_END_RE (`^(#\s|[A-Z][A-Za-z &]*:\s*$)`), so
-  only the Sources section is searched. Before, the search ran to the end of the
-  file and an empty Sources section passed on any URL further down the note —
-  a Reading list entry, for example.
+- The body is bounded by SECTION_END_RE, so only the Sources section is
+  searched. Before, the search ran to the end of the file and an empty Sources
+  section passed on any URL further down the note — a Reading list entry, for
+  example.
+- SECTION_END_RE now recognises three header shapes, and the pattern is written
+  identically in all five note evals:
+  `^(?:#\s|[A-Z][A-Za-z0-9 &,'()/-]*:[ \t]*$|(?:Summary|Motivation[ \t]*&[ \t]*Background|Sources|Reading list|Eval)\b[ \t]*:)`
+  — a markdown heading; a bare label alone on its line, now allowing digits,
+  hyphens, commas, slashes, apostrophes and parentheses so
+  "Practical suggestions (short checklist):" (a real header in
+  notes/reproducibility-practices.md) ends a section; and one of the labels
+  CONTRIBUTING.md names written inline with text after the colon, so
+  "Reading list: Author (2020) https://example.org/x" ends the Sources section
+  instead of being swallowed by it. The inline form is restricted to those five
+  labels on purpose: any prose line ending in a colon would otherwise cut a
+  body short.
+- section_end() ignores a match at offset 0. A body starts right after its own
+  header, so a header matching at the very start of the remainder would end the
+  section where it begins.
 - Each of the three scripts runs self_check() before it reads its note: fixture
   strings for an inline Sources line, a block Sources list, an empty Sources
   section with a URL in a later section, a note with no Sources section, a
   Sources section whose URL sits under a later H1, a header at the end of the
-  file, a missing header, and an inline body continued on the next line. A wrong
-  extraction prints expected vs actual to stderr and exits 2 instead of judging
-  the note.
-- Known limitation, shared with the meta-evals: SECTION_END_RE would cut a
-  Sources body short if a source line itself began with a capitalised word and a
-  colon on its own line. Keeping one regex shape across the evals is the
-  deliberate trade-off (the shared-module route was voted down in #28, so each
-  script stays self-contained).
+  file, a missing header, an inline body continued on the next line, an empty
+  Sources section followed by an inline "Reading list: ..." header, an empty
+  Sources section followed by a punctuated bare header, and both of those shapes
+  as extract_section body cases. A wrong extraction prints expected vs actual to
+  stderr and exits 2 instead of judging the note.
+- Known limitation, shared with the meta-evals: a source line that is itself a
+  capitalised word plus a colon alone on its line still ends the body early, and
+  a prose line beginning "Summary:", "Sources:", "Eval:", "Reading list:" or
+  "Motivation & Background:" is always read as a header. Keeping one regex shape
+  across the evals is the deliberate trade-off (the shared-module route was
+  voted down in #28, so each script stays self-contained).
 
 Repository-wide evals
 
@@ -52,11 +70,13 @@ Repository-wide evals
   section whose paths were never checked. Before any note is judged the script
   runs self_check() over SELF_CHECK_CASES — an inline Eval line, a block Eval
   header with the reference below, a header at the end of the file, an inline
-  header followed by a later section, and a missing header — and exits 2 with
-  the expected and actual body on stderr rather than passing notes with a broken
-  extractor. Known limitation: SECTION_END_RE still ends a section only at a
-  label alone on its line, so an inline header directly after Eval leaves the
-  body over-long; that over-includes rather than under-checks.
+  header followed by a later section, a missing header, an inline Eval line
+  followed by an inline "Sources: ..." line, and an Eval section ended by a
+  punctuated bare header — and exits 2 with the expected and actual body on
+  stderr rather than passing notes with a broken extractor. With the widened
+  SECTION_END_RE an inline header directly after Eval now ends the section, so
+  an evals/... path written in a later section is no longer scanned as if it
+  were an Eval reference.
 - note-format_eval.py is a meta-eval that checks each note's top-level
   sections and that the Eval: section points at an existing eval script. It
   reuses the same section-boundary and eval-path heuristics as
@@ -77,10 +97,12 @@ Repository-wide evals
 - Before any note is judged, note-format_eval.py runs self_check() over
   SELF_CHECK_CASES: fixture strings covering an inline header, a header with the
   body below it, a header at the end of the file, an inline header with more
-  lines under it, a missing header, and the inline forms of Sources, Motivation
-  & Background and Eval. A wrong extraction prints the expected and actual body
-  to stderr and exits 2 (the same code used for layout errors) instead of
-  blaming the notes.
+  lines under it, a missing header, the inline forms of Sources, Motivation
+  & Background and Eval, an empty Summary followed by an inline "Sources: ..."
+  line, a body ended by a punctuated bare header, and an empty Sources section
+  followed by an inline "Reading list: ..." line. A wrong extraction prints the
+  expected and actual body to stderr and exits 2 (the same code used for layout
+  errors) instead of blaming the notes.
 - runner_eval.py is the self-test for the runner. It loads evals/run_all.py by
   path (importlib.util.spec_from_file_location, so no new import name) and
   checks its behaviour against throwaway fixtures in a temporary directory:
