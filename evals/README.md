@@ -77,6 +77,23 @@ Repository-wide evals
   SECTION_END_RE an inline header directly after Eval now ends the section, so
   an evals/... path written in a later section is no longer scanned as if it
   were an Eval reference.
+- Meta-evals are self-declaring. A repository-wide eval assigns `META_EVAL =
+  True` at the top level of its own module; note-coverage_eval.py's
+  declares_meta_eval() parses each *_eval.py with `ast` (never importing or
+  executing it) and exempts the ones that carry the flag from the pairing rule.
+  Only a top-level assignment of the literal True counts — inside a function or
+  class, or set to anything else, it does not. The old META_EVALS set is kept as
+  a fallback so files that predate the flag still pass, but a new meta-eval only
+  needs the line in its own file; adding it to META_EVALS is no longer required.
+  Two guards: if notes/<topic>.md exists for a file that claims the flag,
+  pairing wins and a WARN line names it; a file that will not parse is WARNed
+  and treated as a per-note eval, since eval-conformance_eval.py is the eval
+  that fails syntax errors. self_check() now also runs META_FLAG_CASES — flag
+  present, flag after a docstring and imports, annotated flag, chained
+  assignment, flag set to False, flag set to a non-literal, flag inside a
+  function, flag inside a class, no flag, and a file that will not parse — and
+  exits 2 when the detector misreads any of them. The per-meta OK line says
+  which route exempted the file.
 - note-format_eval.py is a meta-eval that checks each note's top-level
   sections and that the Eval: section points at an existing eval script. It
   reuses the same section-boundary and eval-path heuristics as
@@ -122,9 +139,10 @@ Repository-wide evals
   made here too.
 - These files follow the usual eval contract (stdlib only, module docstring,
   main() harness, exit 0 on success) and are discovered and run by
-  evals/run_all.py like any other *_eval.py. Add a new meta-eval's filename to
-  the META_EVALS set in evals/note-coverage_eval.py so it is exempt from the
-  per-note pairing rule.
+  evals/run_all.py like any other *_eval.py. Add `META_EVAL = True` at the top
+  level of a new meta-eval so it is exempt from the per-note pairing rule; the
+  META_EVALS set in evals/note-coverage_eval.py is only a fallback for the files
+  that predate the flag and needs no new entries.
 
 Runner: evals/run_all.py
 

@@ -23,8 +23,21 @@ Pairing rule (notes and evals come in pairs)
   pairs with evals/chain-of-thought_eval.py and with nothing else.
 - Any evals/... path a note names in its Eval section must exist in the repository.
 - Exemption: a meta-eval — an eval that checks the repository as a whole rather
-  than one note — needs no note of its own. Meta-evals are listed by filename in
-  the META_EVALS set of evals/note-coverage_eval.py; add a new one there.
+  than one note — needs no note of its own. A meta-eval declares itself by
+  assigning `META_EVAL = True` at the top level of its own module, next to the
+  imports:
+
+      META_EVAL = True
+
+  evals/note-coverage_eval.py reads that flag by parsing the file with `ast`
+  (declares_meta_eval); the file is never imported or executed, so nothing has
+  to be registered anywhere else. Only a top-level assignment of the literal
+  `True` counts — a flag inside a function or class body, or set to anything
+  else, does not.
+- The older hand-maintained META_EVALS set in evals/note-coverage_eval.py is
+  kept as a fallback so existing files keep passing; do not add new names to it.
+  If notes/<topic>.md exists for a file that claims the flag, pairing wins: the
+  file is checked as an ordinary per-note eval and a WARN line says so.
 - evals/note-coverage_eval.py enforces these rules and runs as part of
   `python evals/run_all.py`, so a note added without its eval, or an eval whose
   note was renamed, turns the run red and names the topic. The repository also
