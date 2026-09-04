@@ -15,6 +15,18 @@ Repository-wide evals
   no notes/<topic>.md, or when an evals/... path named in a note's Eval section
   does not exist. It prints one OK/FAIL line per topic, so a failure names the
   file to fix.
+- Both Eval styles are checked. note-coverage_eval.py's EVAL_HEADER_RE now
+  matches the label and its colon only (`^Eval\b[ \t]*:?[ \t]*`, the same shape
+  note-format_eval.py uses), so an inline "Eval: See evals/foo_eval.py" line
+  keeps its reference in the section body instead of being read as an empty
+  section whose paths were never checked. Before any note is judged the script
+  runs self_check() over SELF_CHECK_CASES — an inline Eval line, a block Eval
+  header with the reference below, a header at the end of the file, an inline
+  header followed by a later section, and a missing header — and exits 2 with
+  the expected and actual body on stderr rather than passing notes with a broken
+  extractor. Known limitation: SECTION_END_RE still ends a section only at a
+  label alone on its line, so an inline header directly after Eval leaves the
+  body over-long; that over-includes rather than under-checks.
 - note-format_eval.py is a meta-eval that checks each note's top-level
   sections and that the Eval: section points at an existing eval script. It
   reuses the same section-boundary and eval-path heuristics as
