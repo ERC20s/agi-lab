@@ -14,6 +14,11 @@ import ast
 import os
 import sys
 
+# This eval checks the repository as a whole, not one note: it is exempt from
+# the notes/<topic>.md pairing rule and says so here, where
+# evals/note-coverage_eval.py reads it (declares_meta_eval).
+META_EVAL = True
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVALS_DIR = os.path.join(ROOT, "evals")
 EVAL_SUFFIX = "_eval.py"
