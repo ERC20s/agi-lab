@@ -37,6 +37,15 @@ Runner: evals/run_all.py
   runner itself, __init__.py and __pycache__ are excluded as before. Any other
   .py file under evals/ — a shared helper module, a scratch file — is skipped:
   it is never executed, never counted as a pass, and never fails the run.
+- Timing: every eval is timed with time.perf_counter() around its subprocess.
+  The report line now reads `[PASS] topic_eval.py (exit=0, 0.042s)` and ends
+  with a `N eval(s) in X.XXXs total` line.
+- JSON output (--json-output, run: writes evals/last_run.json): each entry of
+  "results" carries duration_seconds (float, wall-clock seconds including
+  interpreter start-up, rounded to milliseconds) and "summary" carries
+  total_duration_seconds alongside all_passed, total, passed, failed,
+  timed_out, timeout_seconds, runner_version and timestamp. That schema change
+  is why runner_version is "0.2"; a consumer pinned to "0.1" should be updated.
 
 Notes and security
 
