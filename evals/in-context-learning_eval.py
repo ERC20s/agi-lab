@@ -15,6 +15,12 @@ is the remainder of the header line joined with everything up to the next sectio
 header, so a URL that appears further down the note (in a Reading list, say)
 no longer counts as a source.
 
+A section header is an H1/H2 line, a bare label alone on its line (digits,
+hyphens, commas, slashes, apostrophes and parentheses allowed, so "Practical
+suggestions (short checklist):" ends a section) or one of the labels
+CONTRIBUTING.md names written inline with text after the colon ("Reading list:
+Author (2020) https://example.org/x").
+
 Before the note is judged the script runs self_check() over fixture strings; a
 wrong extraction returns 2 instead of passing or failing the note.
 
@@ -33,9 +39,38 @@ NOTE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "notes", "i
 # SOURCES_HEADER_RE, with IGNORECASE so it agrees with has_section() below.
 SOURCES_HEADER_RE = re.compile(r"^Sources\b[ \t]*:?[ \t]*", re.IGNORECASE | re.MULTILINE)
 
-# A section ends at the next section header: an H1/H2 line or a bare "Label:"
-# line. Same shape as the meta-evals use, kept identical on purpose.
-SECTION_END_RE = re.compile(r"^(#\s|[A-Z][A-Za-z &]*:\s*$)", re.MULTILINE)
+# A section ends at the next section header. Three shapes count, and the
+# pattern is kept identical in every eval on purpose:
+#   - a markdown heading line ("# ...", "## ...");
+#   - a bare label alone on its line, which may carry digits, hyphens, commas,
+#     slashes, apostrophes and parentheses ("Practical suggestions (short
+#     checklist):");
+#   - one of the labels CONTRIBUTING.md names, written inline with text after
+#     the colon ("Reading list: Author (2020) https://example.org/x").
+# The inline form is deliberately restricted to the known labels so an ordinary
+# prose line that happens to end in a colon does not cut a section short.
+SECTION_LABELS = ("Summary", r"Motivation[ \t]*&[ \t]*Background", "Sources", "Reading list", "Eval")
+SECTION_END_RE = re.compile(
+    r"^(?:#\s"
+    r"|[A-Z][A-Za-z0-9 &,'()/-]*:[ \t]*$"
+    r"|(?:" + "|".join(SECTION_LABELS) + r")\b[ \t]*:)",
+    re.MULTILINE,
+)
+
+
+def section_end(rest):
+    """Return the first section header in `rest`, ignoring one at offset 0.
+
+    A body starts immediately after its own header, so a header matching at
+    offset 0 would end the section where it begins and always yield an empty
+    body.
+    """
+    for m in SECTION_END_RE.finditer(rest):
+        if m.start() == 0:
+            continue
+        return m
+    return None
+
 
 URL_RE = re.compile(r"https?://[^\s)\]\">']+", re.IGNORECASE)
 
@@ -75,7 +110,7 @@ def extract_section(text, header_re):
     if not m:
         return None
     rest = text[m.end():]
-    end = SECTION_END_RE.search(rest)
+    end = section_end(rest)
     return rest[: end.start()] if end else rest
 
 
@@ -114,6 +149,16 @@ SELF_CHECK_CASES = (
         "# T\n\nSources: see the printed handout\n\n# Appendix\n\nhttps://example.org/late\n",
         False,
     ),
+    (
+        "empty Sources followed by an inline Reading list header",
+        "# T\n\nSources:\n\nReading list: Author (2020) https://example.org/x\n",
+        False,
+    ),
+    (
+        "empty Sources followed by a punctuated bare header",
+        "# T\n\nSources:\n\nPractical suggestions (short checklist):\n- https://example.org/y\n",
+        False,
+    ),
 )
 
 # (label, note text, expected extract_section body after .strip(); None = no section)
@@ -124,6 +169,16 @@ SECTION_CASES = (
         "inline body with more lines under it",
         "# T\n\nSources: https://example.org/a\nhttps://example.org/b\n\nEval:\n- x\n",
         "https://example.org/a\nhttps://example.org/b",
+    ),
+    (
+        "an inline following header ends the body",
+        "# T\n\nSources: https://example.org/a\nReading list: x https://example.org/b\n",
+        "https://example.org/a",
+    ),
+    (
+        "a punctuated bare header ends the body",
+        "# T\n\nSources: https://example.org/a\n\nPractical suggestions (short checklist):\n- x\n",
+        "https://example.org/a",
     ),
 )
 

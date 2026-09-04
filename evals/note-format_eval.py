@@ -13,7 +13,12 @@ Section bodies are read in both of the styles CONTRIBUTING.md allows: the label 
 the text on one line ("Summary: two sentences ...") and the label on its own line
 with the text below it. The body is the remainder of the header line joined with
 everything up to the next section header; a section whose body is blank either way
-is still reported as empty.
+is still reported as empty. A section header is an H1/H2 line, a bare label alone
+on its line (digits, hyphens, commas, slashes, apostrophes and parentheses
+allowed, so "Practical suggestions (short checklist):" ends a section) or one of
+the labels CONTRIBUTING.md names written inline with text after the colon
+("Sources: https://example.org/x"), so a body no longer runs on into the next
+section.
 
 Before the notes are checked the script runs self_check(), a set of fixture strings
 that exercise extract_section (inline header, header with body below, header at end
@@ -35,7 +40,39 @@ NOT_NOTES = {"readme.md"}
 
 # Heuristics reused from note-coverage_eval.py
 EVAL_REF_RE = re.compile(r"evals/[A-Za-z0-9._-]+\.py")
-SECTION_END_RE = re.compile(r"^(#\s|[A-Z][A-Za-z &]*:\s*$)", re.MULTILINE)
+
+# A section ends at the next section header. Three shapes count, and the
+# pattern is kept identical in every eval on purpose:
+#   - a markdown heading line ("# ...", "## ...");
+#   - a bare label alone on its line, which may carry digits, hyphens, commas,
+#     slashes, apostrophes and parentheses ("Practical suggestions (short
+#     checklist):");
+#   - one of the labels CONTRIBUTING.md names, written inline with text after
+#     the colon ("Reading list: Author (2020) https://example.org/x").
+# The inline form is deliberately restricted to the known labels so an ordinary
+# prose line that happens to end in a colon does not cut a section short.
+SECTION_LABELS = ("Summary", r"Motivation[ \t]*&[ \t]*Background", "Sources", "Reading list", "Eval")
+SECTION_END_RE = re.compile(
+    r"^(?:#\s"
+    r"|[A-Z][A-Za-z0-9 &,'()/-]*:[ \t]*$"
+    r"|(?:" + "|".join(SECTION_LABELS) + r")\b[ \t]*:)",
+    re.MULTILINE,
+)
+
+
+def section_end(rest):
+    """Return the first section header in `rest`, ignoring one at offset 0.
+
+    A body starts immediately after its own header, so a header matching at
+    offset 0 would end the section where it begins and always yield an empty
+    body.
+    """
+    for m in SECTION_END_RE.finditer(rest):
+        if m.start() == 0:
+            continue
+        return m
+    return None
+
 
 # Header matchers for the required sections. Each one matches the LABEL and its
 # colon only - never the rest of the line - so that an inline section
@@ -82,7 +119,7 @@ def extract_section(text, header_re):
     if not m:
         return None
     rest = text[m.end():]
-    end = SECTION_END_RE.search(rest)
+    end = section_end(rest)
     return rest[: end.start()] if end else rest
 
 
@@ -140,6 +177,24 @@ SELF_CHECK_CASES = (
         "# T\n\nEval: See evals/t_eval.py\n",
         EVAL_HEADER_RE,
         "See evals/t_eval.py",
+    ),
+    (
+        "an inline following header ends an empty Summary",
+        "# T\n\nSummary:\n\nSources: https://example.com\n",
+        SUMMARY_HEADER_RE,
+        "",
+    ),
+    (
+        "a punctuated bare header ends the body",
+        "# T\n\nSummary: body text.\n\nPractical suggestions (short checklist):\n- x\n",
+        SUMMARY_HEADER_RE,
+        "body text.",
+    ),
+    (
+        "an inline Reading list header ends the Sources body",
+        "# T\n\nSources:\n\nReading list: Author (2020) https://example.org/x\n",
+        SOURCES_HEADER_RE,
+        "",
     ),
 )
 
