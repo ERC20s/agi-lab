@@ -55,6 +55,12 @@ EVAL_SUFFIX = "_eval.py"
 # meant to finish in well under a second, so a minute is a generous ceiling.
 DEFAULT_TIMEOUT = 60
 
+# Maximum bytes to read back from each eval's stdout/stderr. A malicious or
+# buggy eval that prints megabytes cannot exhaust the runner's memory when
+# output is streamed to temporary files on disk; the runner truncates what it
+# returns. Default 100KiB, configurable with --max-output-bytes.
+MAX_CAPTURE_BYTES = 100 * 1024
+
 
 def discover_eval_files(root_dir):
     """Return (eval_files, skipped_files).
@@ -97,13 +103,18 @@ def _partial(stream):
     return stream
 
 
-def run_file(path, timeout=DEFAULT_TIMEOUT):
+def run_file(path, timeout=DEFAULT_TIMEOUT, max_output_bytes=MAX_CAPTURE_BYTES):
     """Run one eval and return its result dict.
 
     The result always carries duration_seconds: the wall-clock time spent on
     the subprocess, measured with time.perf_counter() and rounded to
     milliseconds. A timed-out or crashed eval is timed too, so a slow failure
     is as visible as a slow pass.
+
+    To avoid unbounded memory growth from evals that print large logs, this
+    function redirects stdout/stderr to temporary files on disk and reads back
+    up to `max_output_bytes` from each. The returned result includes
+    stdout_truncated and stderr_truncated booleans to indicate clipping.
     """
     rel = os.path.relpath(path, start=SCRIPT_DIR)
     started = time.perf_counter()
@@ -111,48 +122,92 @@ def run_file(path, timeout=DEFAULT_TIMEOUT):
     def elapsed():
         return round(time.perf_counter() - started, 3)
 
-    try:
-        proc = subprocess.run(
-            [sys.executable, path],
-            capture_output=True,
-            text=True,
-            # An eval that reads stdin must fail, not wait for a keystroke that
-            # never comes: the runner's output is captured, so nobody sees a prompt.
-            stdin=subprocess.DEVNULL,
-            timeout=timeout,
-        )
-        return {
-            "path": rel,
-            "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "passed": proc.returncode == 0,
-            "timed_out": False,
-            "duration_seconds": elapsed(),
-        }
-    except subprocess.TimeoutExpired as e:
-        return {
-            "path": rel,
-            "returncode": None,
-            "stdout": _partial(e.stdout),
-            "stderr": (
-                _partial(e.stderr)
-                + f"runner: {rel} exceeded the {timeout}s timeout and was killed\n"
-            ),
-            "passed": False,
-            "timed_out": True,
-            "duration_seconds": elapsed(),
-        }
-    except Exception as e:
-        return {
-            "path": rel,
-            "returncode": None,
-            "stdout": "",
-            "stderr": f"runner error: {e}",
-            "passed": False,
-            "timed_out": False,
-            "duration_seconds": elapsed(),
-        }
+    # Helper to read at most `max_output_bytes` bytes from a file-like object
+    # opened in binary mode, decode with replacement, and indicate whether the
+    # content was truncated.
+    def _read_limited(fh):
+        try:
+            fh.seek(0)
+            data = fh.read(max_output_bytes + 1)
+        except Exception:
+            return "", False
+        truncated = len(data) > max_output_bytes
+        if truncated:
+            data = data[:max_output_bytes]
+        # Decode bytes to text, replacing invalid sequences
+        try:
+            return data.decode("utf-8", "replace"), truncated
+        except Exception:
+            return "", truncated
+
+    stdout_truncated = False
+    stderr_truncated = False
+
+    # Use TemporaryFile so large outputs go to disk and do not exhaust memory.
+    with tempfile.TemporaryFile() as out_fh, tempfile.TemporaryFile() as err_fh:
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, path],
+                stdout=out_fh,
+                stderr=err_fh,
+                stdin=subprocess.DEVNULL,
+            )
+            try:
+                proc.wait(timeout=timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                # Kill the process and mark timeout
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+                timed_out = True
+
+            returncode = proc.returncode
+
+            # Read back outputs limited by the cap
+            out_text, out_trunc = _read_limited(out_fh)
+            err_text, err_trunc = _read_limited(err_fh)
+            stdout_truncated = out_trunc
+            stderr_truncated = err_trunc
+
+            if timed_out:
+                # Append a timeout note to stderr to be consistent with previous
+                # behaviour which included such a message in the TimeoutExpired
+                # exception handling path.
+                err_text = (
+                    err_text
+                    + ("\n" if err_text and not err_text.endswith("\n") else "")
+                    + f"runner: {rel} exceeded the {timeout}s timeout and was killed\n"
+                )
+
+            return {
+                "path": rel,
+                "returncode": returncode,
+                "stdout": out_text,
+                "stderr": err_text,
+                "passed": returncode == 0,
+                "timed_out": timed_out,
+                "duration_seconds": elapsed(),
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
+            }
+        except Exception as e:
+            return {
+                "path": rel,
+                "returncode": None,
+                "stdout": "",
+                "stderr": f"runner error: {e}",
+                "passed": False,
+                "timed_out": False,
+                "duration_seconds": elapsed(),
+                "stdout_truncated": False,
+                "stderr_truncated": False,
+            }
 
 
 def print_report(results):
@@ -230,6 +285,17 @@ def main():
             "and reported as [TIMEOUT]."
         ),
     )
+    parser.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=MAX_CAPTURE_BYTES,
+        metavar="BYTES",
+        help=(
+            "Maximum number of bytes to read back from each eval's stdout and "
+            "stderr. Larger output is truncated; set to 0 for no limit. "
+            f"(default: {MAX_CAPTURE_BYTES})."
+        ),
+    )
     args = parser.parse_args()
 
     files, skipped_paths = discover_eval_files(SCRIPT_DIR)
@@ -247,7 +313,7 @@ def main():
 
     results = []
     for f in files:
-        results.append(run_file(f, timeout=args.timeout))
+        results.append(run_file(f, timeout=args.timeout, max_output_bytes=args.max_output_bytes))
 
     all_passed = print_report(results)
     print_skipped(skipped)
