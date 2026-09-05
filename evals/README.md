@@ -179,3 +179,11 @@ Notes and security
 - The runner executes code on the local machine; evaluators should not run
   untrusted code. Use CI isolation or sandboxing as appropriate.
 - The contract is intentionally small to reduce maintenance burden.
+
+Additional notes about stdlib_imports_eval.py:
+
+- The stdlib_imports_eval.py meta-eval now scans every Import and ImportFrom
+  node anywhere in an eval module's AST (not just the top-level statements);
+  it prints the first line number where each name appears. It also runs a
+  self-check (SELF_CHECK_CASES) before scanning the files and reports a failed
+  self-check as exit code 2 so layout errors are caught early.
