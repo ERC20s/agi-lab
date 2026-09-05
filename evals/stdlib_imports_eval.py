@@ -2,8 +2,8 @@
 
 Usage: python3 evals/stdlib_imports_eval.py
 
-This meta-eval scans every *_eval.py in evals/ for top-level Import and
-ImportFrom nodes. It permits:
+This meta-eval scans every *_eval.py in evals/ for Import and ImportFrom
+nodes anywhere in the module (not just at the top-level). It permits:
 - builtin modules (sys.builtin_module_names),
 - modules whose resolved origin lies under the Python stdlib directory
   (sysconfig.get_paths()['stdlib']), and
@@ -17,7 +17,7 @@ fail. A FAIL is printed only when the import resolves to a location that is
 clearly outside the stdlib directory and outside the repository root.
 
 Returns exit code 0 when no FAILs, 1 when any FAILs were emitted, 2 on major
-layout errors.
+layout errors or a failed self-check.
 """
 
 import ast
@@ -42,31 +42,82 @@ def read_text(path):
         return fh.read()
 
 
-def top_level_imports(text):
-    """Return sorted set of top-level import names found in module text.
+# (label, source, expected mapping or "error")
+SELF_CHECK_CASES = (
+    ("top-level import", "import os\n", {"os": 1}),
+    ("import inside __main__", 'if __name__ == "__main__":\n    import sys\n    sys.exit(main())\n', {"sys": 2}),
+    ("import inside function", "def f():\n    import requests\n    return 0\n", {"requests": 2}),
+    ("import inside try/except", "try:\n    import numpy\nexcept ImportError:\n    numpy = None\n", {"numpy": 2}),
+    ("import inside class body", "class C:\n    import math\n", {"math": 2}),
+    ("from os import path", "from os import path\n", {"os": 1}),
+    ("relative import ignored", "from . import localmod\n", {}),
+    ("duplicate imports deduped", "import os\nif True:\n    import os\n", {"os": 1}),
+    ("file that will not parse", "def (:\n", "error"),
+)
 
-    For Import nodes yield the top-level name (split at dot). For ImportFrom
-    with level > 0 skip (relative import). For ImportFrom with level == 0 use
-    the module name's top-level part.
+
+def self_check():
+    failures = []
+    for label, source, expected in SELF_CHECK_CASES:
+        try:
+            got = top_level_imports(source)
+        except SyntaxError:
+            got = "error"
+        except Exception as exc:
+            failures.append("%s: top_level_imports raised %r" % (label, exc))
+            continue
+        # got is a dict name->lineno or "error"
+        if got == "error":
+            if expected != "error":
+                failures.append("%s: expected %r, got error" % (label, expected))
+            continue
+        if expected == "error":
+            failures.append("%s: expected error, got %r" % (label, got))
+            continue
+        # compare names and line numbers: expected may be subset of got but we
+        # expect exact match here
+        if set(got.keys()) != set(expected.keys()):
+            failures.append("%s: expected names %r, got %r" % (label, sorted(expected.keys()), sorted(got.keys())))
+            continue
+        for name, lineno in expected.items():
+            if got.get(name) != lineno:
+                failures.append("%s: expected %s line %r, got %r" % (label, name, lineno, got.get(name)))
+    return failures
+
+
+def top_level_imports(text):
+    """Return dict of import name -> first line number for Import and ImportFrom
+
+    This walks the whole AST (ast.walk) so nested imports are seen. For Import
+    nodes the top-level module name (split at dot) is used. For ImportFrom with
+    a non-zero level the import is skipped (relative import); otherwise the
+    module's top-level name is used.
     """
     tree = ast.parse(text)
-    names = set()
-    for node in tree.body:  # only top-level statements
+    names = {}
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 name = alias.name.split(".")[0]
-                if name:
-                    names.add(name)
+                if not name:
+                    continue
+                lineno = getattr(node, "lineno", None)
+                if name not in names or (lineno is not None and lineno < names[name]):
+                    names[name] = lineno
         elif isinstance(node, ast.ImportFrom):
             if getattr(node, "level", 0) > 0:
                 # relative import; allow local packages
                 continue
             module = node.module
-            if module:
-                name = module.split(".")[0]
-                if name:
-                    names.add(name)
-    return sorted(names)
+            if not module:
+                continue
+            name = module.split(".")[0]
+            if not name:
+                continue
+            lineno = getattr(node, "lineno", None)
+            if name not in names or (lineno is not None and lineno < names[name]):
+                names[name] = lineno
+    return names
 
 
 def is_path_in(path, parent):
@@ -137,6 +188,15 @@ def classify_import(name, stdlib_dir):
 
 
 def main():
+    # run the self-check first, same convention as the other evals
+    check_failures = self_check()
+    if check_failures:
+        print("ERROR: self-check failed - not judging evals with a broken importer detector", file=sys.stderr)
+        for failure in check_failures:
+            print("  - %s" % failure, file=sys.stderr)
+        return 2
+    print("self-check: %d import case(s) OK" % (len(SELF_CHECK_CASES)))
+
     if not EVALS_DIR.is_dir():
         print("ERROR: expected directory evals/ at the repository root", file=sys.stderr)
         return 2
@@ -160,20 +220,27 @@ def main():
             failures += 1
             continue
 
-        imports = top_level_imports(text)
+        try:
+            imports = top_level_imports(text)
+        except SyntaxError as exc:
+            print(f"FAIL: {fn} - could not parse ({exc})")
+            failures += 1
+            continue
+
         if not imports:
-            print(f"OK: {fn} - no top-level imports")
+            print(f"OK: {fn} - no imports")
             continue
 
         file_failed = False
-        for name in imports:
+        for name in sorted(imports.keys()):
+            lineno = imports.get(name)
             status, msg, resolved = classify_import(name, stdlib_dir)
             if status == "OK":
-                print(f"OK: {fn} - import {name}: {msg}")
+                print(f"OK: {fn} - import {name} (line {lineno}): {msg}")
             elif status == "WARN":
-                print(f"WARN: {fn} - import {name}: {msg}")
+                print(f"WARN: {fn} - import {name} (line {lineno}): {msg}")
             elif status == "FAIL":
-                print(f"FAIL: {fn} - import {name}: {msg}")
+                print(f"FAIL: {fn} - import {name} (line {lineno}): {msg}")
                 file_failed = True
 
         if file_failed:
