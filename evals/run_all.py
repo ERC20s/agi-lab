@@ -44,8 +44,9 @@ import datetime
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 # Runner version for the summary metadata. Bump when changing output schema.
-# 0.2 added duration_seconds per result and summary.total_duration_seconds.
-RUNNER_VERSION = "0.2"
+# 0.3 changes the JSON schema to allow omitting per-result stdout/stderr via
+# the --strip-outputs flag; consumers can detect this via summary.outputs_included.
+RUNNER_VERSION = "0.3"
 
 # An eval is a named thing: CONTRIBUTING.md says evals/<topic>_eval.py.
 EVAL_SUFFIX = "_eval.py"
@@ -296,6 +297,15 @@ def main():
             f"(default: {MAX_CAPTURE_BYTES})."
         ),
     )
+    parser.add_argument(
+        "--strip-outputs",
+        action="store_true",
+        help=(
+            "When set, omit per-result 'stdout' and 'stderr' fields from the "
+            "written JSON summary and set summary.outputs_included to false. "
+            "Default is to include outputs."
+        ),
+    )
     args = parser.parse_args()
 
     files, skipped_paths = discover_eval_files(SCRIPT_DIR)
@@ -307,7 +317,13 @@ def main():
         print(f"No eval files (*{EVAL_SUFFIX}) found under evals/ — nothing was run.")
         print_skipped(skipped)
         if args.json_output:
-            write_json(args.json_output, [], skipped, timeout_seconds=args.timeout)
+            write_json(
+                args.json_output,
+                [],
+                skipped,
+                timeout_seconds=args.timeout,
+                include_outputs=not args.strip_outputs,
+            )
         # Already a failed run; a failed summary write cannot make it worse.
         sys.exit(1)
 
@@ -321,7 +337,11 @@ def main():
     json_written = True
     if args.json_output:
         json_written = write_json(
-            args.json_output, results, skipped, timeout_seconds=args.timeout
+            args.json_output,
+            results,
+            skipped,
+            timeout_seconds=args.timeout,
+            include_outputs=not args.strip_outputs,
         )
         if not json_written:
             print(
@@ -333,7 +353,7 @@ def main():
     sys.exit(0 if (all_passed and json_written) else 1)
 
 
-def write_json(path, results, skipped, timeout_seconds=None):
+def write_json(path, results, skipped, timeout_seconds=None, include_outputs=True):
     """Write the JSON output containing results, skipped and a summary object.
 
     The summary includes:
@@ -342,10 +362,13 @@ def write_json(path, results, skipped, timeout_seconds=None):
     - timeout_seconds (float or null): the per-eval timeout used (if known)
     - total_duration_seconds (float): the sum of every result's
       duration_seconds, 0.0 when nothing ran
-    - runner_version (string) and timestamp (ISO8601 UTC string)
+    - runner_version (string), outputs_included (bool) and timestamp (ISO8601 UTC string)
 
     Each entry of results also carries duration_seconds (float), the
-    wall-clock time that eval took.
+    wall-clock time that eval took. When include_outputs is false, per-result
+    fields 'stdout' and 'stderr' are removed from each result before
+    serialisation; callers should set include_outputs=False when they want a
+    smaller or redacted summary.
 
     Returns True when the file is on disk, False when it is not — the reason
     goes to stderr. Nothing is raised: a caller decides what a failed write
@@ -360,6 +383,18 @@ def write_json(path, results, skipped, timeout_seconds=None):
     passed = sum(1 for r in results if r.get("passed"))
     timed_out = sum(1 for r in results if r.get("timed_out"))
     all_passed = (total > 0) and (passed == total)
+    # Decide whether to include per-result outputs. If include_outputs is
+    # False, create a shallow copy of each result with stdout/stderr removed so
+    # the on-disk JSON omits potentially large strings.
+    if not include_outputs:
+        serialisable_results = []
+        for r in results:
+            # Copy only the fields we want to keep: everything except stdout/stderr
+            r_copy = {k: v for k, v in r.items() if k not in ("stdout", "stderr")}
+            serialisable_results.append(r_copy)
+    else:
+        serialisable_results = results
+
     summary = {
         "all_passed": all_passed,
         "total": total,
@@ -369,6 +404,7 @@ def write_json(path, results, skipped, timeout_seconds=None):
         "timeout_seconds": float(timeout_seconds) if timeout_seconds is not None else None,
         "total_duration_seconds": total_duration_seconds(results),
         "runner_version": RUNNER_VERSION,
+        "outputs_included": bool(include_outputs),
         "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
     }
 
@@ -377,7 +413,7 @@ def write_json(path, results, skipped, timeout_seconds=None):
         # Serialise before touching the filesystem: an unserialisable payload
         # must not cost us the existing file.
         payload = json.dumps(
-            {"results": results, "skipped": skipped, "summary": summary}, indent=2
+            {"results": serialisable_results, "skipped": skipped, "summary": summary}, indent=2
         )
 
         directory = os.path.dirname(os.path.abspath(path))
