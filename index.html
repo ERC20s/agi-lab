@@ -76,8 +76,78 @@
           rows.push('<div style="display:flex;align-items:center;margin-bottom:6px">' + badge + '<div style="font-size:13px;color:#374151">' + esc(when) + '</div></div>');
           rows.push('<div style="color:#374151;font-size:13px">Total: ' + esc(s.total) + ' &nbsp; Passed: ' + esc(s.passed) + ' &nbsp; Failed: ' + esc(s.failed) + '</div>');
           rows.push('<div style="color:#6b7280;font-size:12px;margin-top:6px">Timed out: ' + esc(s.timed_out) + ' &nbsp; Duration(s): ' + esc(s.total_duration_seconds) + '</div>');
+
+          // If per-result details are present, render them as a list.
+          var results = d.results || [];
+          if (Array.isArray(results) && results.length) {
+            rows.push('<div style="margin-top:10px;font-size:13px;color:#374151;font-weight:600">Per-eval results</div>');
+            rows.push('<div id="eval-list" style="margin-top:8px">');
+            // Client-side caps for previews and expanded output to keep the page responsive.
+            var MAX_PREVIEW = 4096; // characters
+            var MAX_EXPAND = 65536; // characters
+            for (var i = 0; i < results.length; i++) {
+              var r = results[i];
+              var status = (r.timed_out) ? 'TIMEOUT' : (r.passed ? 'PASS' : 'FAIL');
+              var statusColor = r.timed_out ? '#f97316' : (r.passed ? '#065f46' : '#991b1b');
+              var badge = '<span style="background:' + (r.passed ? '#ecfdf5' : '#fef2f2') + ';color:' + statusColor + ';padding:4px 8px;border-radius:999px;font-weight:600;margin-right:8px">' + esc(status) + '</span>';
+              var duration = typeof r.duration_seconds !== 'undefined' ? esc(r.duration_seconds) + 's' : '';
+
+              // Combine stdout/stderr for a simple preview; indicate truncation flags if present.
+              var out = '' + (r.stdout || '');
+              if (r.stderr) {
+                if (out) out += '\n--- STDERR ---\n';
+                out += r.stderr;
+              }
+              var outLen = out.length || 0;
+              var preview = esc(out.length > MAX_PREVIEW ? out.slice(0, MAX_PREVIEW) + '\n\n...(truncated preview)...' : out);
+
+              var truncatedNote = '';
+              if (r.stdout_truncated || r.stderr_truncated) {
+                truncatedNote = '<div style="font-size:12px;color:#6b7280;margin-top:4px">(output truncated on the runner)</div>';
+              }
+
+              // If the runner omitted outputs entirely, say so and link to the JSON.
+              if (s.outputs_included === false) {
+                rows.push('<div style="padding:8px 0;border-top:1px solid #e5e7eb">' + badge + '<span style="font-size:13px;color:#374151">' + esc(r.path) + '</span> <span style="color:#6b7280;margin-left:6px">' + esc(duration) + '</span><div style="font-size:12px;color:#9ca3af;margin-top:6px">outputs redacted — <a href="evals/last_run.json">view JSON</a></div></div>');
+              } else {
+                // The toggle target contains the escaped, possibly capped full text.
+                var fullText = out || '';
+                var fullShown = fullText.length > MAX_EXPAND ? esc(fullText.slice(0, MAX_EXPAND)) + '\n\n...(output truncated in the browser)...' : esc(fullText);
+                var canExpand = fullText.length > 0;
+                rows.push('<div style="padding:8px 0;border-top:1px solid #e5e7eb">' + badge + '<span style="font-size:13px;color:#374151">' + esc(r.path) + '</span> <span style="color:#6b7280;margin-left:6px">' + esc(duration) + '</span>' +
+                          (canExpand ? '<div style="margin-top:6px;font-size:12px;color:#111827">' + preview + (preview ? '' : '<span class="muted">(no output)</span>') + '</div>' : '<div style="margin-top:6px;font-size:12px;color:#6b7280">(no output)</div>') +
+                          (canExpand ? '<div style="margin-top:6px"><button type="button" data-show-output="' + i + '" style="font:13px system-ui, sans-serif;color:#7c5cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline">Show output</button></div>' : '') +
+                          truncatedNote +
+                          '<pre id="output-' + i + '" style="display:none;background:#f9fafb;padding:8px;border-radius:6px;margin-top:8px;white-space:pre-wrap;max-height:40vh;overflow:auto">' + fullShown + '</pre>' +
+                          '</div>');
+              }
+            }
+            rows.push('</div>');
+          } else {
+            rows.push('<div style="margin-top:8px;font-size:12px;color:#6b7280">No per-eval results present in the summary.</div>');
+          }
+
           rows.push('<div style="margin-top:8px;font-size:12px"><a href="evals/last_run.json">View full summary</a> &nbsp;|&nbsp; <span class="muted">Run locally: <code>python evals/run_all.py --json-output evals/last_run.json</code></span></div>');
           draw(rows.join(''));
+
+          // Wire up Show output toggles
+          try {
+            var list = container.querySelectorAll('[data-show-output]');
+            for (var j = 0; j < list.length; j++) {
+              (function () {
+                var btn = list[j];
+                var idx = btn.getAttribute('data-show-output');
+                var pre = document.getElementById('output-' + idx);
+                if (!pre) return;
+                btn.addEventListener('click', function () {
+                  if (pre.style.display === 'none') { pre.style.display = 'block'; btn.textContent = 'Hide output'; }
+                  else { pre.style.display = 'none'; btn.textContent = 'Show output'; }
+                });
+              })();
+            }
+          } catch (e) {
+            // If wiring fails, do not break the whole page.
+          }
         })
         .catch(function (err) {
           clearTimeout(timer);
