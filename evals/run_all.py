@@ -40,6 +40,7 @@ import sys
 import tempfile
 import time
 import datetime
+import signal
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -163,16 +164,27 @@ def run_file(path, timeout=DEFAULT_TIMEOUT, max_output_bytes=MAX_CAPTURE_BYTES):
                 stdout=out_fh,
                 stderr=err_fh,
                 stdin=subprocess.DEVNULL,
+                start_new_session=True,
             )
             try:
                 proc.wait(timeout=timeout)
                 timed_out = False
             except subprocess.TimeoutExpired:
-                # Kill the process and mark timeout
+                # Try to kill the whole process group (POSIX): this will
+                # terminate any children the eval spawned. Fall back to the
+                # single-process kill() if that fails (Windows or other errors).
                 try:
-                    proc.kill()
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except Exception:
+                        # POSIX group kill failed; fall back to proc.kill()
+                        proc.kill()
                 except Exception:
-                    pass
+                    # Give up on killing the process group and try the old path
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
                 try:
                     proc.wait(timeout=5)
                 except Exception:
