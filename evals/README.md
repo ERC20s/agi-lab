@@ -129,11 +129,15 @@ Repository-wide evals
   timeout comes back timed_out with "exceeded the" in stderr; a script calling
   input() fails instead of hanging; write_json produces parsable JSON whose
   summary carries all_passed, total, passed, failed, timed_out, timeout_seconds,
-  total_duration_seconds, runner_version and timestamp and returns True;
-  write_json creates a missing parent directory, returns False instead of
-  raising when the output path is impossible (its parent is a regular file), and
-  leaves an existing valid last_run.json byte-for-byte intact with no temporary
-  file behind when a write fails; and positive_timeout
+  total_duration_seconds, runner_version, outputs_included and timestamp and
+  returns True; write_json creates a missing parent directory, returns False
+  instead of raising when the output path is impossible (its parent is a
+  regular file), and leaves an existing valid last_run.json byte-for-byte
+  intact with no temporary file behind when a write fails; a script printing
+  well over a small max_output_bytes comes back stdout_truncated=True with
+  stdout clipped to that cap; write_json(include_outputs=False) strips
+  stdout/stderr from every result and sets summary.outputs_included=False,
+  while include_outputs=True keeps them and sets it True; and positive_timeout
   rejects "0", "-1" and "abc". It prints one OK/FAIL line per check. Because it
   names run_all.py's functions directly, a future rename in the runner has to be
   made here too.

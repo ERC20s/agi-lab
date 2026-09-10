@@ -22,13 +22,18 @@ against throwaway fixtures built with tempfile:
   runner passes stdin=subprocess.DEVNULL;
 - write_json writes parsable JSON whose summary carries all_passed, total,
   passed, failed, timed_out, timeout_seconds, total_duration_seconds,
-  runner_version and timestamp, and returns True;
+  runner_version, outputs_included and timestamp, and returns True;
 - write_json creates a missing parent directory for the output file;
 - write_json returns False (it does not raise) when the output path is
   impossible, e.g. its parent is an existing regular file;
 - a failed write leaves an existing, valid last_run.json byte-for-byte intact
   and leaves no temporary file behind, because the payload is serialised first
   and swapped in with os.replace();
+- run_file on a script that prints well over max_output_bytes comes back with
+  stdout_truncated True and a stdout no longer than that cap;
+- write_json with include_outputs=False strips stdout/stderr from every
+  result and sets summary.outputs_included to False, while
+  include_outputs=True keeps the fields and sets it to True;
 - positive_timeout accepts "1.5" and rejects "0", "-1" and "abc".
 
 Fixtures are created in a temporary directory inside the repository root (so
@@ -225,6 +230,7 @@ def check_write_json(runner):
         "timeout_seconds",
         "total_duration_seconds",
         "runner_version",
+        "outputs_included",
         "timestamp",
     ]
     for key in expected_keys:
@@ -368,6 +374,78 @@ def check_write_json_leaves_existing_file_intact(runner):
     return True, "a failed write leaves the previous summary intact and no temp file behind"
 
 
+def check_output_truncation(runner):
+    """run_file caps stdout at max_output_bytes and reports the clipping."""
+    small_limit = 200
+    with temp_workspace() as tmp:
+        path = write_script(
+            tmp,
+            "loud_eval.py",
+            "print('x' * %d)\n" % (small_limit * 20),
+        )
+        result = runner.run_file(path, timeout=FIXTURE_TIMEOUT, max_output_bytes=small_limit)
+
+    problems = []
+    if result.get("stdout_truncated") is not True:
+        problems.append("stdout_truncated was %r, expected True" % result.get("stdout_truncated"))
+    stdout = result.get("stdout") or ""
+    if len(stdout) > small_limit:
+        problems.append(
+            "stdout was %d bytes long, expected <= %d" % (len(stdout), small_limit)
+        )
+    if problems:
+        return False, "; ".join(problems)
+    return True, "a script printing well over %d bytes comes back stdout_truncated=True and clipped" % small_limit
+
+
+def check_strip_outputs(runner):
+    """write_json can omit stdout/stderr and records outputs_included either way."""
+    with temp_workspace() as tmp:
+        stripped_out = os.path.join(tmp, "stripped.json")
+        stripped_ok = runner.write_json(
+            stripped_out, sample_results(), [], timeout_seconds=1.0, include_outputs=False
+        )
+        with open(stripped_out, "r", encoding="utf-8") as fh:
+            stripped_payload = json.load(fh)
+
+        full_out = os.path.join(tmp, "full.json")
+        full_ok = runner.write_json(
+            full_out, sample_results(), [], timeout_seconds=1.0, include_outputs=True
+        )
+        with open(full_out, "r", encoding="utf-8") as fh:
+            full_payload = json.load(fh)
+
+    problems = []
+    if stripped_ok is not True:
+        problems.append("write_json(include_outputs=False) returned %r, expected True" % stripped_ok)
+    if full_ok is not True:
+        problems.append("write_json(include_outputs=True) returned %r, expected True" % full_ok)
+
+    stripped_summary = stripped_payload.get("summary") or {}
+    if stripped_summary.get("outputs_included") is not False:
+        problems.append(
+            "summary['outputs_included'] was %r for a stripped write, expected False"
+            % stripped_summary.get("outputs_included")
+        )
+    for result in stripped_payload.get("results") or []:
+        if "stdout" in result or "stderr" in result:
+            problems.append("a stripped result still carried stdout/stderr: %r" % result)
+
+    full_summary = full_payload.get("summary") or {}
+    if full_summary.get("outputs_included") is not True:
+        problems.append(
+            "summary['outputs_included'] was %r for a full write, expected True"
+            % full_summary.get("outputs_included")
+        )
+    for result in full_payload.get("results") or []:
+        if "stdout" not in result or "stderr" not in result:
+            problems.append("a full result dropped stdout/stderr: %r" % result)
+
+    if problems:
+        return False, "; ".join(problems)
+    return True, "include_outputs=False strips stdout/stderr and sets outputs_included=False; True keeps them"
+
+
 def check_positive_timeout(runner):
     """--timeout only accepts a number of seconds greater than zero."""
     problems = []
@@ -399,6 +477,8 @@ CHECKS = (
     ("write_json creates parent", check_write_json_creates_parent),
     ("write_json reports failure", check_write_json_failure_returns_false),
     ("write_json is atomic", check_write_json_leaves_existing_file_intact),
+    ("run_file output truncation", check_output_truncation),
+    ("write_json --strip-outputs", check_strip_outputs),
     ("positive_timeout", check_positive_timeout),
 )
 
