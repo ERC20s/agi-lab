@@ -123,21 +123,32 @@ def run_file(path, timeout=DEFAULT_TIMEOUT, max_output_bytes=MAX_CAPTURE_BYTES):
     def elapsed():
         return round(time.perf_counter() - started, 3)
 
-    # Helper to read at most `max_output_bytes` bytes from a file-like object
+    # Helper to read up to `max_output_bytes` bytes from a file-like object
     # opened in binary mode, decode with replacement, and indicate whether the
-    # content was truncated.
+    # content was truncated. If max_output_bytes <= 0 treat it as "no limit"
+    # and read the whole file.
     def _read_limited(fh):
         try:
             fh.seek(0)
-            data = fh.read(max_output_bytes + 1)
+            if max_output_bytes is None or max_output_bytes <= 0:
+                # Read the whole file when no limit is requested.
+                data = fh.read()
+            else:
+                data = fh.read(max_output_bytes + 1)
         except Exception:
             return "", False
-        truncated = len(data) > max_output_bytes
-        if truncated:
-            data = data[:max_output_bytes]
+        if max_output_bytes is None or max_output_bytes <= 0:
+            truncated = False
+        else:
+            truncated = len(data) > max_output_bytes
+            if truncated:
+                data = data[:max_output_bytes]
         # Decode bytes to text, replacing invalid sequences
         try:
-            return data.decode("utf-8", "replace"), truncated
+            if isinstance(data, bytes):
+                return data.decode("utf-8", "replace"), truncated
+            # Fallback if the file object returned a string for some reason
+            return str(data), truncated
         except Exception:
             return "", truncated
 
