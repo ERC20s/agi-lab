@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "path": "note-coverage_eval.py",
+      "returncode": 0,
+      "stdout": "OK: 5 checks, 0 failures\n",
+      "stderr": "",
+      "passed": true,
+      "timed_out": false,
+      "duration_seconds": 0.123,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    },
+    {
+      "path": "stdlib_imports_eval.py",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"stdlib_imports_eval.py\", line 42, in <module>\n    raise AssertionError('missing import: json')\nAssertionError: missing import: json\n",
+      "passed": false,
+      "timed_out": false,
+      "duration_seconds": 0.257,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    }
+  ],
+  "skipped": [
+    "helper.py"
+  ],
+  "summary": {
+    "all_passed": false,
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "timed_out": 0,
+    "timeout_seconds": 60.0,
+    "total_duration_seconds": 0.38,
+    "runner_version": "0.3",
+    "outputs_included": true,
+    "timestamp": "2026-09-10T12:00:00+00:00"
+  }
+}
