@@ -130,5 +130,6 @@ payments:
 run:
   {
     "evals": { "cmd": "python evals/run_all.py --json-output evals/last_run.json" },
+    "eval-runner": { "cmd": "python evals/scheduled_runner.py" },
     "web": { "cmd": "python -m http.server 8000 --directory .", "port": 8000 }
   }
