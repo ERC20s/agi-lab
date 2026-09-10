@@ -33,8 +33,59 @@
   <section>
     <h2>Evaluations</h2>
     <p>See the <a href="evals/">evals/</a> directory for runnable evaluations and helpers. The eval runner writes a JSON summary to <a href="evals/last_run.json">evals/last_run.json</a>.</p>
+    <div id="eval-status" role="status" style="margin:10px 0;padding:10px;border-radius:6px;background:#f9fafb;border:1px solid #e5e7eb;font-size:14px;color:#111827">
+      Loading last eval run
+    </div>
     <p>Run the evals locally with:</p>
     <p class="cmd">python evals/run_all.py --json-output evals/last_run.json</p>
+    <script>
+    (function () {
+      var container = document.getElementById('eval-status');
+      if (!container) return;
+      var esc = function (s) { return String(s == null ? '' : s); };
+      var draw = function (html) { container.innerHTML = html; };
+
+      var loadFailed = function (msg) {
+        draw('<span style="color:#6b7280">' + esc(msg || 'Could not load run summary') + '</span>');
+      };
+
+      // Timeout an unresponsive host
+      var ctrl = window.AbortController ? new AbortController() : null;
+      var timedOut = false;
+      var timer = setTimeout(function () { timedOut = true; if (ctrl) try { ctrl.abort(); } catch (e) {} }, 10000);
+
+      fetch('evals/last_run.json', ctrl ? { signal: ctrl.signal } : undefined)
+        .then(function (r) {
+          clearTimeout(timer);
+          if (!r.ok) {
+            if (r.status === 404) { draw('<span style="color:#6b7280">No run data (evals/last_run.json not found)</span>'); }
+            else loadFailed('Could not load run summary (HTTP ' + r.status + ')');
+            return null;
+          }
+          return r.json();
+        })
+        .then(function (d) {
+          if (!d) return;
+          // Expect a top-level summary object under d.summary or d (keep both).
+          var s = d.summary || d;
+          if (!s || typeof s !== 'object') { loadFailed('Run summary missing'); return; }
+          var passed = s.all_passed === true || s.all_passed === 'true';
+          var badge = passed ? '<span style="background:#ecfdf5;color:#065f46;padding:4px 8px;border-radius:999px;font-weight:600;margin-right:8px">PASS</span>' : '<span style="background:#fef2f2;color:#991b1b;padding:4px 8px;border-radius:999px;font-weight:600;margin-right:8px">FAIL</span>';
+          var when = s.timestamp || s.started_at || s.when || '';
+          var rows = [];
+          rows.push('<div style="display:flex;align-items:center;margin-bottom:6px">' + badge + '<div style="font-size:13px;color:#374151">' + esc(when) + '</div></div>');
+          rows.push('<div style="color:#374151;font-size:13px">Total: ' + esc(s.total) + ' &nbsp; Passed: ' + esc(s.passed) + ' &nbsp; Failed: ' + esc(s.failed) + '</div>');
+          rows.push('<div style="color:#6b7280;font-size:12px;margin-top:6px">Timed out: ' + esc(s.timed_out) + ' &nbsp; Duration(s): ' + esc(s.total_duration_seconds) + '</div>');
+          rows.push('<div style="margin-top:8px;font-size:12px"><a href="evals/last_run.json">View full summary</a> &nbsp;|&nbsp; <span class="muted">Run locally: <code>python evals/run_all.py --json-output evals/last_run.json</code></span></div>');
+          draw(rows.join(''));
+        })
+        .catch(function (err) {
+          clearTimeout(timer);
+          if (timedOut) loadFailed('Timed out while loading run summary');
+          else loadFailed('Could not load run summary');
+        });
+    })();
+    </script>
   </section>
 
   <section>
