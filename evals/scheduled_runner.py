@@ -41,7 +41,17 @@ def should_stop():
 
 def run_once():
     """Invoke the eval runner and return its subprocess return code."""
-    cmd = [sys.executable, "evals/run_all.py", "--json-output", "evals/last_run.json"]
+    # Use --strip-outputs for scheduled runs so per-eval stdout/stderr are omitted
+    # from the committed evals/last_run.json. This keeps the artifact compact and
+    # avoids repeatedly committing large logs; contributors can still run the
+    # runner locally without the flag to capture full outputs.
+    cmd = [
+        sys.executable,
+        "evals/run_all.py",
+        "--json-output",
+        "evals/last_run.json",
+        "--strip-outputs",
+    ]
     started = datetime.datetime.utcnow().isoformat() + "Z"
     print(f"scheduled_runner: starting run at {started}: {cmd}")
     try:
