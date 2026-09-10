@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AGI Lab — Notes and Evals</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; max-width: 780px; margin: 28px auto; line-height:1.5; color:#111827 }
+    header h1 { margin:0 0 6px; font-size:24px }
+    header p { margin:0 0 18px; color:#6b7280 }
+    section { margin:18px 0 }
+    ul { margin:8px 0 0 20px }
+    a { color:#7c5cff }
+    pre.cmd { background:#f3f4f6;padding:10px;border-radius:6px;display:inline-block }
+    .muted { color:#6b7280; font-size:13px }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AGI Lab</h1>
+    <p class="muted">An open research notebook: one note per idea, a reading list, and small runnable evals.</p>
+  </header>
+
+  <section>
+    <h2>Notes</h2>
+    <ul>
+      <li><a href="notes/chain-of-thought.md">notes/chain-of-thought.md</a></li>
+      <li><a href="notes/in-context-learning.md">notes/in-context-learning.md</a></li>
+      <li><a href="notes/reproducibility-practices.md">notes/reproducibility-practices.md</a></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Evaluations</h2>
+    <p>See the <a href="evals/">evals/</a> directory for runnable evaluations and helpers. The eval runner writes a JSON summary to <a href="evals/last_run.json">evals/last_run.json</a>.</p>
+    <p>Run the evals locally with:</p>
+    <p class="cmd">python evals/run_all.py --json-output evals/last_run.json</p>
+  </section>
+
+  <section>
+    <h2>Contributing</h2>
+    <p>Read <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for the note format, eval guidance and how to run tests.</p>
+  </section>
+
+  <section>
+    <h2>Store</h2>
+    <p class="muted">The group provides an embeddable shop widget below. It shows the same UI the platform provides and will reflect the platform state (it may show "The shop could not be reached" if the platform is not answering).</p>
+
+    <!-- Sell on your site: your items, a Buy button each. After a payment the buyer
+         returns here with ?d8a_order=<id>; the widget verifies it with the platform and
+         fires "group-store:paid" (window.groupStorePaid) — release the product there. -->
+    <div id="group-store"></div>
+    <script>
+    (function () {
+      var BASE = "https://d8a.com";
+      var GROUP = "d8aaaa-batch_agi_lab";
+      var esc = function (s) {
+        return String(s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
+      };
+      var el = document.getElementById("group-store");
+      // The handshake: an order id is only proof once the platform says so.
+      var verify = function (id) {
+        return fetch(BASE + "/api/v1/store/orders/" + encodeURIComponent(id) + "?group=" + encodeURIComponent(GROUP))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { return d && d.paid ? d.order : null; })
+          .catch(function () { return null; });
+      };
+      window.groupStoreVerify = verify;
+      var back = (location.search.match(/[?&]d8a_order=([A-Za-z0-9_-]+)/) || [])[1];
+      if (back) verify(back).then(function (o) {
+        if (!o) return;
+        window.groupStorePaid = o;
+        if (el && el.parentNode) {
+          var p = document.createElement("p");
+          p.setAttribute("data-paid", o.id);
+          p.style.cssText = "font:13px system-ui,sans-serif;color:#059669";
+          p.innerHTML = "Paid: " + esc(o.itemName) + (o.quantity > 1 ? " \u00d7"+o.quantity : "") + " \u2014 order " + esc(o.id);
+          el.parentNode.insertBefore(p, el);
+        }
+        document.dispatchEvent(new CustomEvent("group-store:paid", { detail: o }));
+      });
+      if (!el) return;
+      // The list. What is on sale is read from the platform (s) and kept here so
+      // the Buy handler below, wired once, always sees the latest load.
+      var store = null;
+      // One place that draws the failure line, so the timeout and the .catch at
+      // the end show exactly the same thing. Try again re-runs the load in place.
+      var loadFailed = function () {
+        el.innerHTML = '<p role="status" style="font:13px system-ui,sans-serif;color:#9ca3af">The shop could not be reached. <button type="button" data-store-retry style="font:inherit;color:#7c5cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline">Try again</button></p>';
+        var retry = el.querySelector("[data-store-retry]");
+        if (retry) retry.addEventListener("click", function () { load(); });
+      };
+      var load = function () {
+        el.innerHTML = '<p role="status" style="font:13px system-ui,sans-serif;color:#9ca3af">Loading what\'s on sale\u2026</p>';
+        // A request that never answers (captive wifi, a stalled proxy) never
+        // rejects, so without this the box would sit on the loading line for ever.
+        var done = false, timedOut = false;
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = setTimeout(function () {
+          if (done) return;
+          timedOut = true;
+          if (ctrl) { try { ctrl.abort(); } catch (err) { loadFailed(); } }  // rejects -> .catch below
+          else { loadFailed(); }                                             // no AbortController: draw it here
+        }, 12000);
+        fetch(BASE + "/api/v1/store/items?group=" + encodeURIComponent(GROUP), ctrl ? { signal: ctrl.signal } : undefined)
+          .then(function (r) {
+            if (timedOut) return null;              // late answer: the failure line stands
+            done = true;
+            clearTimeout(timer);                    // a slow but good render is never killed
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (s) {
+            if (!s) return;
+            if (!s.items) throw new Error("bad payload");
+            store = s;
+            if (!s.items.length) { el.innerHTML = '<p style="font:13px system-ui,sans-serif;color:#9ca3af">Nothing for sale right now.</p>'; return; }
+            el.innerHTML = s.items.map(function (it) {
+              return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #e5e7eb;font:14px system-ui,sans-serif">' +
+                '<div style="flex:1"><b>' + esc(it.name) + '</b>' +
+                (it.description ? '<div style="font-size:12px;color:#6b7280">' + esc(it.description) + '</div>' : '') + '</div>' +
+                '<span>' + esc(it.price) + '</span>' +
+                '<a href="' + esc(it.payUrl) + '" data-item="' + esc(it.id) + '" style="background:#7c5cff;color:#fff;border-radius:999px;padding:6px 14px;text-decoration:none">Buy</a></div>';
+            }).join("") + '<p style="font:11px system-ui,sans-serif;color:#9ca3af">Sold by <a href="' + esc(s.group.url) + '" style="color:#7c5cff">' + esc(s.group.name) + '</a></p>';
+          })
+          .catch(function () {
+            clearTimeout(timer);
+            loadFailed();
+          });
+      };
+      el.addEventListener("click", function (e) {
+        var a = e.target && e.target.closest ? e.target.closest("a[data-item]") : null;
+        var s = store;
+        if (!a || !s || !s.checkout.enabled) return;
+        e.preventDefault();
+        a.textContent = "Opening\u2026";
+        // Come back to this page — minus any earlier receipt on the URL.
+        var here = location.href.replace(/([?&])d8a_order=[^&#]*&?/, "$1").replace(/[?&](#|$)/, "$1");
+        fetch(s.checkout.url, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ group: GROUP, item: a.getAttribute("data-item"), quantity: 1, returnUrl: here }) })
+          .then(function (r) { return r.json(); })
+          .then(function (d) { if (d.url) { location.href = d.url; } else { a.textContent = "Buy"; location.href = a.href; } })
+          .catch(function () { location.href = a.href; });
+      });
+      load();
+    })();
+    </script>
+
+  </section>
+
+  <footer>
+    <p class="muted">Served from the repository root. To see this page locally run the project's web run (python -m http.server 8000 --directory .) and open <a href="http://localhost:8000/">http://localhost:8000/</a>.</p>
+  </footer>
+</body>
+</html>
