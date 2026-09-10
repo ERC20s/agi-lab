@@ -42,7 +42,7 @@
     (function () {
       var container = document.getElementById('eval-status');
       if (!container) return;
-      var esc = function (s) { return String(s == null ? '' : s); };
+      var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
       var draw = function (html) { container.innerHTML = html; };
 
       var loadFailed = function (msg) {
