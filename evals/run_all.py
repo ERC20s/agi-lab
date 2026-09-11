@@ -452,8 +452,32 @@ def write_json(path, results, skipped, timeout_seconds=None, include_outputs=Tru
             fh.write(payload)
             fh.flush()
             os.fsync(fh.fileno())
+        # Atomically replace the target with the newly-written temp file.
         os.replace(tmp_path, path)
         tmp_path = None
+        # Attempt to make the rename durable by fsyncing the parent directory.
+        # Some platforms and filesystems only guarantee the directory entry is
+        # persisted once the directory itself is synced. This is a best-effort
+        # durability improvement: if the operation is unsupported or fails we
+        # silently fall back to the previous behaviour so the runner remains
+        # portable.
+        try:
+            try:
+                # Open the directory read-only and fsync its descriptor.
+                dirfd = os.open(directory, os.O_RDONLY)
+            except Exception:
+                dirfd = None
+            if dirfd is not None:
+                try:
+                    os.fsync(dirfd)
+                finally:
+                    try:
+                        os.close(dirfd)
+                    except Exception:
+                        pass
+        except Exception:
+            # Give up on directory fsync; don't fail the write for portability.
+            pass
         print(f"Wrote JSON summary to {path}")
         return True
     except Exception as e:
