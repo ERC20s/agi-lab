@@ -69,8 +69,8 @@ def check_file(path):
                     isinstance(left, ast.Name)
                     and left.id == "__name__"
                     and len(comparators) == 1
-                    and isinstance(comparators[0], (ast.Str, ast.Constant))
-                    and getattr(comparators[0], "s", getattr(comparators[0], "value", None)) == "__main__"
+                    and isinstance(comparators[0], ast.Constant)
+                    and comparators[0].value == "__main__"
                 ):
                     is_name_main = True
             if not is_name_main:

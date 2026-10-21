@@ -137,8 +137,10 @@ Repository-wide evals
   well over a small max_output_bytes comes back stdout_truncated=True with
   stdout clipped to that cap; write_json(include_outputs=False) strips
   stdout/stderr from every result and sets summary.outputs_included=False,
-  while include_outputs=True keeps them and sets it True; and positive_timeout
-  rejects "0", "-1" and "abc". It prints one OK/FAIL line per check. Because it
+  while include_outputs=True keeps them and sets it True; positive_timeout
+  rejects "0", "-1" and "abc"; and the command line itself, run on a copy of
+  the runner beside fixture evals, exits 0 when every eval passes and 1 when
+  one exits non-zero or raises. It prints one OK/FAIL line per check. Because it
   names run_all.py's functions directly, a future rename in the runner has to be
   made here too.
 - These files follow the usual eval contract (stdlib only, module docstring,
