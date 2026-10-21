@@ -1,0 +1,5 @@
+# Development and CI tools only. The evals themselves use the Python standard
+# library alone (CONTRIBUTING.md) and need nothing installed.
+pytest==9.1.1
+ruff==0.17.1
+mypy==2.4.0

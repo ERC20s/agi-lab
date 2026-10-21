@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ERC20s/agi-lab/blob/main/evals/last_run.schema.json",
+  "title": "agi-lab eval run summary (evals/last_run.json)",
+  "description": "Written by evals/run_all.py --json-output and validated by it right after writing. runner_version 0.4.",
+  "type": "object",
+  "required": ["results", "skipped", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "returncode",
+          "passed",
+          "timed_out",
+          "duration_seconds",
+          "stdout_truncated",
+          "stderr_truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "returncode": { "type": ["integer", "null"] },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "timed_out": { "type": "boolean" },
+          "duration_seconds": { "type": "number", "minimum": 0 },
+          "stdout_truncated": { "type": "boolean" },
+          "stderr_truncated": { "type": "boolean" }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "all_passed",
+        "total",
+        "passed",
+        "failed",
+        "timed_out",
+        "timeout_seconds",
+        "total_duration_seconds",
+        "seed",
+        "runner_version",
+        "outputs_included",
+        "timestamp"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "all_passed": { "type": "boolean" },
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "timed_out": { "type": "integer", "minimum": 0 },
+        "timeout_seconds": { "type": ["number", "null"], "minimum": 0 },
+        "total_duration_seconds": { "type": "number", "minimum": 0 },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "runner_version": { "const": "0.4" },
+        "outputs_included": { "type": "boolean" },
+        "timestamp": { "type": "string" }
+      }
+    }
+  }
+}

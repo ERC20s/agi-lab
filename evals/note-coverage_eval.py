@@ -238,7 +238,7 @@ def section_refs(text):
 
 
 # (label, note text, expected sorted refs, expected stripped section body)
-SELF_CHECK_CASES = (
+SELF_CHECK_CASES: tuple[tuple[str, str, list[str], str], ...] = (
     (
         "inline Eval line",
         "# T\n\nSummary: s\n\nEval: See evals/t_eval.py\n",

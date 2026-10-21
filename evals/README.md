@@ -155,6 +155,7 @@ Runner: evals/run_all.py
 - Purpose: discover and execute eval scripts under evals/ and report per-file
   pass/fail status based on exit codes.
 - Usage: python evals/run_all.py [--json-output FILE] [--timeout SECONDS]
+  [--seed N] [--evals-dir DIR]
 - Discovery rule: only files whose name ends in _eval.py are executed. The
   runner itself, __init__.py and __pycache__ are excluded as before. Any other
   .py file under evals/ — a shared helper module, a scratch file — is skipped:
@@ -179,6 +180,37 @@ Runner: evals/run_all.py
   does not change, so runner_version stays "0.2". The trade-off: a caller that
   passes --json-output but does not care about the file now sees exit 1 when the
   path is unwritable.
+
+- Seeds (runner_version "0.4"): every eval runs with PYTHONHASHSEED and
+  EVAL_SEED set to --seed (default 0, the value
+  notes/reproducibility-practices.md recommends), so str hashing and set order
+  repeat run to run; an eval that uses random should call
+  random.seed(int(os.environ["EVAL_SEED"])). summary.seed records it.
+- Schema: evals/last_run.schema.json is the JSON Schema for the summary. After
+  writing, the runner re-reads the file and validates it (validate_schema, a
+  stdlib validator for exactly the keywords the schema uses; any other keyword
+  is an error, not ignored). A summary that does not match, or a missing
+  schema file, fails the run like an unwritten summary. A copy of the runner
+  needs the schema beside it, which is why runner_eval.py copies both.
+- Summary table: the run ends with one STATUS / EVAL / EXIT / TIME row per eval
+  and a totals line, "N eval(s) in X.XXXs total: P passed, F failed (T timed
+  out)". --evals-dir runs the evals of another directory (the pytest fixtures
+  use it).
+
+Tests, lint and the notes check
+
+- tests/ holds pytest tests for run_all.py, the per-note evals,
+  note-format_eval.py and scripts/check_notes.py. tests/fixtures/evals_fail
+  contains always_fails_eval.py, a deliberately failing eval the runner must
+  report as FAIL with exit 1. Those fixtures live outside evals/ so the
+  declared check never discovers them.
+- ruff and mypy settings are in pyproject.toml; pytest, ruff and mypy are pinned
+  in requirements-dev.txt. The evals themselves still need nothing installed.
+- scripts/check_notes.py checks every note's front matter (H1 title first,
+  Summary as the first section), the required sections in CONTRIBUTING.md's
+  order, and that every link in Sources and Reading list resolves within
+  --timeout seconds. It needs the network, so it is a CI step rather than an
+  eval; --no-links runs the offline part.
 
 Notes and security
 
