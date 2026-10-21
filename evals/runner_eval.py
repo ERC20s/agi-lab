@@ -34,7 +34,11 @@ against throwaway fixtures built with tempfile:
 - write_json with include_outputs=False strips stdout/stderr from every
   result and sets summary.outputs_included to False, while
   include_outputs=True keeps the fields and sets it to True;
-- positive_timeout accepts "1.5" and rejects "0", "-1" and "abc".
+- positive_timeout accepts "1.5" and rejects "0", "-1" and "abc";
+- the command line itself (python run_all.py --json-output FILE, run on a copy
+  of the runner next to fixture evals) exits 0 when every eval passes, and
+  exits 1 with summary.all_passed false when one eval exits non-zero or one
+  crashes with an uncaught exception.
 
 Fixtures are created in a temporary directory inside the repository root (so
 run_file's os.path.relpath never has to cross a drive on Windows) and are
@@ -49,6 +53,8 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -468,6 +474,48 @@ def check_positive_timeout(runner):
     return True, "'1.5' accepted; '0', '-1' and 'abc' rejected"
 
 
+def run_cli(directory, json_path):
+    """Run a copy of the runner placed in `directory`; return (exit code, summary)."""
+    runner_copy = os.path.join(directory, "run_all.py")
+    shutil.copyfile(RUNNER_PATH, runner_copy)
+    proc = subprocess.run(
+        [sys.executable, runner_copy, "--json-output", json_path],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=FIXTURE_TIMEOUT,
+    )
+    with open(json_path, "r", encoding="utf-8") as fh:
+        summary = json.load(fh).get("summary") or {}
+    return proc.returncode, summary
+
+
+def check_cli_exit_code(runner):
+    """The command line exits 0 only when every eval passes."""
+    cases = (
+        ("all pass", {}, 0, True),
+        ("one fails", {"fails_eval.py": "import sys\nsys.exit(1)\n"}, 1, False),
+        ("one errors", {"errors_eval.py": "raise RuntimeError('boom')\n"}, 1, False),
+    )
+    problems = []
+    for label, extra, want_code, want_all_passed in cases:
+        with temp_workspace() as tmp:
+            write_script(tmp, "ok_eval.py", "print('ok')\n")
+            for name, body in extra.items():
+                write_script(tmp, name, body)
+            code, summary = run_cli(tmp, os.path.join(tmp, "out", "last_run.json"))
+        if code != want_code:
+            problems.append("%s: exit code was %r, expected %r" % (label, code, want_code))
+        if summary.get("all_passed") is not want_all_passed:
+            problems.append(
+                "%s: summary.all_passed was %r, expected %r"
+                % (label, summary.get("all_passed"), want_all_passed)
+            )
+    if problems:
+        return False, "; ".join(problems)
+    return True, "exit 0 when all pass; exit 1 when an eval fails or raises"
+
+
 CHECKS = (
     ("discover_eval_files", check_discovery),
     ("run_file exit code", check_failing_exit_code),
@@ -480,6 +528,7 @@ CHECKS = (
     ("run_file output truncation", check_output_truncation),
     ("write_json --strip-outputs", check_strip_outputs),
     ("positive_timeout", check_positive_timeout),
+    ("command-line exit code", check_cli_exit_code),
 )
 
 

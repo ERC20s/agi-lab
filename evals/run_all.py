@@ -428,7 +428,7 @@ def write_json(path, results, skipped, timeout_seconds=None, include_outputs=Tru
         "total_duration_seconds": total_duration_seconds(results),
         "runner_version": RUNNER_VERSION,
         "outputs_included": bool(include_outputs),
-        "timestamp": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
     tmp_path = None
