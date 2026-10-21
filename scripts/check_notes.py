@@ -28,6 +28,7 @@ the notes directory or note-format_eval.py cannot be read.
 """
 
 import argparse
+import http.client
 import importlib.util
 import os
 import re
@@ -165,14 +166,18 @@ def check_link(url: str, timeout: float = DEFAULT_TIMEOUT, retries: int = 1) -> 
             status = _request(url, "HEAD", timeout)
             if status in HEAD_REFUSED_STATUSES:
                 status = _request(url, "GET", timeout)
-        except (urllib.error.URLError, OSError, ValueError) as e:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
             # A timeout surfaces bare while reading, or wrapped in URLError
             # while connecting; either way it is reported as a timeout.
+            # http.client raises HTTPException (not OSError) for a malformed
+            # response or a URL it cannot parse, such as a non-numeric port:
+            # that is a dead link too, not a reason to abort every note.
             cause = getattr(e, "reason", e)
             if isinstance(cause, TimeoutError):
                 reason = f"timed out after {timeout:g}s"
             else:
-                reason = f"{type(e).__name__}: {cause}"
+                # BadStatusLine carries the raw line, CRLF included.
+                reason = f"{type(e).__name__}: {str(cause).strip()}"
             continue
         if 200 <= status < 300:
             return None
