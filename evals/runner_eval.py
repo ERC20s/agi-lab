@@ -36,7 +36,7 @@ against throwaway fixtures built with tempfile:
   include_outputs=True keeps the fields and sets it to True;
 - positive_timeout accepts "1.5" and rejects "0", "-1" and "abc";
 - the command line itself (python run_all.py --json-output FILE, run on a copy
-  of the runner next to fixture evals) exits 0 when every eval passes, and
+  of the runner and of last_run.schema.json next to fixture evals) exits 0 when every eval passes, and
   exits 1 with summary.all_passed false when one eval exits non-zero or one
   crashes with an uncaught exception.
 
@@ -66,6 +66,9 @@ META_EVAL = True
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVALS_DIR = os.path.join(ROOT, "evals")
 RUNNER_PATH = os.path.join(EVALS_DIR, "run_all.py")
+# The runner validates every summary it writes against this file, read from
+# its own directory, so a copy of the runner needs a copy of the schema.
+SCHEMA_PATH = os.path.join(EVALS_DIR, "last_run.schema.json")
 
 # Generous ceilings: these fixtures exit immediately, the sleeper is meant to be
 # killed. Kept well apart so a loaded machine does not flip the timeout check.
@@ -478,6 +481,7 @@ def run_cli(directory, json_path):
     """Run a copy of the runner placed in `directory`; return (exit code, summary)."""
     runner_copy = os.path.join(directory, "run_all.py")
     shutil.copyfile(RUNNER_PATH, runner_copy)
+    shutil.copyfile(SCHEMA_PATH, os.path.join(directory, "last_run.schema.json"))
     proc = subprocess.run(
         [sys.executable, runner_copy, "--json-output", json_path],
         stdin=subprocess.DEVNULL,

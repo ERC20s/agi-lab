@@ -1,0 +1,22 @@
+# Tool settings only: agi-lab is not a package and the evals stay standard
+# library only. The dev tools that read this file are pinned in
+# requirements-dev.txt.
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# pycodestyle errors and pyflakes: real mistakes (syntax, undefined names,
+# unused imports), not style. Spelled out so a ruff upgrade that widens its
+# default rule set cannot turn CI red without a code change.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["evals", "scripts", "tests"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

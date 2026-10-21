@@ -22,3 +22,45 @@ jobs:
       # Evals are standard-library only (CONTRIBUTING.md): there is nothing to pip install.
       - name: Run evals (declared check)
         run: python evals/run_all.py --json-output evals/last_run.json
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dev tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install dev tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: ruff
+        run: python -m ruff check .
+      - name: mypy
+        run: python -m mypy
+
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      # Standard library only; checks front matter, sections and that every
+      # Sources / Reading list link resolves (per-request timeout).
+      - name: Check notes
+        run: python scripts/check_notes.py --timeout 15

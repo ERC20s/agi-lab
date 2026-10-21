@@ -43,7 +43,7 @@ def read_text(path):
 
 
 # (label, source, expected mapping or "error")
-SELF_CHECK_CASES = (
+SELF_CHECK_CASES: tuple[tuple[str, str, dict[str, int] | str], ...] = (
     ("top-level import", "import os\n", {"os": 1}),
     ("import inside __main__", 'if __name__ == "__main__":\n    import sys\n    sys.exit(main())\n', {"sys": 2}),
     ("import inside function", "def f():\n    import requests\n    return 0\n", {"requests": 2}),
