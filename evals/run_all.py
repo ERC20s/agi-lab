@@ -421,6 +421,8 @@ _SCHEMA_KEYWORDS = {
     "minimum",
     "maximum",
 }
+# The names _is_type knows; any other "type" value is a schema error.
+_SCHEMA_TYPES = {"null", "boolean", "object", "array", "string", "integer", "number"}
 
 
 def _is_type(value, name):
@@ -451,17 +453,51 @@ def _json_equal(a, b):
     return a == b
 
 
+def schema_errors(schema, where="$"):
+    """Return every problem with `schema` itself, walking all of it.
+
+    Validating an instance only visits the subschemas that instance reaches:
+    the items of an empty array, the properties a stripped summary leaves out,
+    or a second "type" name behind one that already matched. So the whole
+    schema is checked here first, and an unsupported keyword or an unknown
+    type name anywhere in it is an error on every run, not only on the rare
+    run whose summary happens to reach it.
+    """
+    errors = []
+    unknown = set(schema) - _SCHEMA_KEYWORDS - _SCHEMA_ANNOTATIONS
+    if unknown:
+        errors.append(f"{where}: schema uses unsupported keyword(s) {sorted(unknown)}")
+    if "type" in schema:
+        types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
+        bad = [t for t in types if not isinstance(t, str) or t not in _SCHEMA_TYPES]
+        if bad:
+            errors.append(f"{where}: unknown JSON Schema type(s) {bad!r}")
+    for key, subschema in schema.get("properties", {}).items():
+        errors.extend(schema_errors(subschema, f"{where}.{key}"))
+    if "items" in schema:
+        errors.extend(schema_errors(schema["items"], f"{where}[]"))
+    if isinstance(schema.get("additionalProperties"), dict):
+        errors.extend(schema_errors(schema["additionalProperties"], f"{where}.*"))
+    return errors
+
+
 def validate_schema(instance, schema, where="$"):
     """Validate `instance` against `schema`; return a list of error strings.
 
     An empty list means the instance is valid. Each error names the JSON path
     of the offending value ("$.summary.total"), so a failure says what to fix.
+    The schema itself is checked first (schema_errors); a schema with problems
+    is reported as such and no instance is valid against it.
     """
-    errors = []
-    unknown = set(schema) - _SCHEMA_KEYWORDS - _SCHEMA_ANNOTATIONS
-    if unknown:
-        return [f"{where}: schema uses unsupported keyword(s) {sorted(unknown)}"]
+    problems = schema_errors(schema, where)
+    if problems:
+        return problems
+    return _validate(instance, schema, where)
 
+
+def _validate(instance, schema, where):
+    """validate_schema's recursion, for a schema schema_errors has accepted."""
+    errors = []
     if "type" in schema:
         types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
         if not any(_is_type(instance, t) for t in types):
@@ -484,17 +520,17 @@ def validate_schema(instance, schema, where="$"):
                 errors.append(f"{where}: missing required property {key!r}")
         for key, value in instance.items():
             if key in properties:
-                errors.extend(validate_schema(value, properties[key], f"{where}.{key}"))
+                errors.extend(_validate(value, properties[key], f"{where}.{key}"))
                 continue
             extra = schema.get("additionalProperties", True)
             if extra is False:
                 errors.append(f"{where}: unexpected property {key!r}")
             elif isinstance(extra, dict):
-                errors.extend(validate_schema(value, extra, f"{where}.{key}"))
+                errors.extend(_validate(value, extra, f"{where}.{key}"))
 
     if isinstance(instance, list) and "items" in schema:
         for i, item in enumerate(instance):
-            errors.extend(validate_schema(item, schema["items"], f"{where}[{i}]"))
+            errors.extend(_validate(item, schema["items"], f"{where}[{i}]"))
 
     return errors
 

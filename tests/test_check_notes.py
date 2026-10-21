@@ -4,6 +4,7 @@ Links are checked against a throwaway HTTP server on the loopback interface,
 so these tests need no network.
 """
 
+import socket
 import threading
 import time
 from collections.abc import Iterator
@@ -209,6 +210,61 @@ def test_slow_link_times_out(check_notes: ModuleType, server: str) -> None:
 def test_unreachable_host_fails(check_notes: ModuleType, server: str) -> None:
     reason = check_notes.check_link("http://127.0.0.1:9/", timeout=2, retries=0)
     assert reason is not None and reason.startswith("URLError")
+
+
+@pytest.fixture
+def garbage_server(monkeypatch: pytest.MonkeyPatch, check_notes: ModuleType) -> Iterator[str]:
+    """A loopback server that answers every request with a non-HTTP status line."""
+    for var in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(var, "127.0.0.1,localhost")
+    monkeypatch.setattr(check_notes, "RETRY_DELAY_SECONDS", 0)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+
+    def serve() -> None:
+        while True:
+            try:
+                conn, _ = listener.accept()
+            except OSError:  # the listener was closed: the test is over
+                return
+            with conn:
+                conn.recv(4096)
+                conn.sendall(b"garbage\r\n\r\n")
+
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{listener.getsockname()[1]}"
+    finally:
+        listener.close()
+
+
+def test_malformed_response_is_a_dead_link(check_notes: ModuleType, garbage_server: str) -> None:
+    reason = check_notes.check_link(garbage_server + "/x", timeout=5)
+    assert reason == "BadStatusLine: garbage"
+
+
+def test_url_with_a_bad_port_is_a_dead_link(check_notes: ModuleType) -> None:
+    reason = check_notes.check_link("https://example.org:80a/x", timeout=2, retries=0)
+    assert reason == "InvalidURL: nonnumeric port: '80a'"
+
+
+def test_one_malformed_link_does_not_stop_the_other_notes(
+    check_notes: ModuleType, garbage_server: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Both notes link only to the garbage server; the second also has a
+    # structural problem, which must still be reported after the first
+    # note's malformed response.
+    linked = GOOD_NOTE.replace("https://example.org/paper", garbage_server + "/x").replace(
+        "Someone (2020). https://example.org/reading.", "Someone (2020)."
+    )
+    (tmp_path / "a.md").write_text(linked, encoding="utf-8")
+    (tmp_path / "b.md").write_text(linked.replace("Summary:", "Overview:"), encoding="utf-8")
+    assert check_notes.main(["--notes-dir", str(tmp_path), "--timeout", "5"]) == 1
+    out = capsys.readouterr().out
+    assert out.count(f"link does not resolve: {garbage_server}/x (BadStatusLine: garbage)") == 2
+    assert "front matter: no Summary section" in out
+    assert "2 note(s) checked, 2 failed [structure and links]" in out
 
 
 def test_check_note_reports_dead_reading_list_links(

@@ -199,6 +199,57 @@ def test_validator_refuses_keywords_it_does_not_implement(run_all: ModuleType) -
     assert errors == ["$: schema uses unsupported keyword(s) ['pattern']"]
 
 
+@pytest.mark.parametrize(
+    ("instance", "schema", "expected"),
+    [
+        # The items of an empty array are never visited by the instance.
+        (
+            [],
+            {"type": "array", "items": {"type": "string", "pattern": "^x"}},
+            ["$[]: schema uses unsupported keyword(s) ['pattern']"],
+        ),
+        # An optional property the instance leaves out, as --strip-outputs does.
+        (
+            {},
+            {"type": "object", "properties": {"stdout": {"type": "string", "maxLength": 5}}},
+            ["$.stdout: schema uses unsupported keyword(s) ['maxLength']"],
+        ),
+        (
+            {},
+            {"type": "object", "additionalProperties": {"format": "date"}},
+            ["$.*: schema uses unsupported keyword(s) ['format']"],
+        ),
+        # A misspelt type name behind one the instance already matches.
+        (None, {"type": ["null", "intger"]}, ["$: unknown JSON Schema type(s) ['intger']"]),
+    ],
+)
+def test_validator_checks_the_whole_schema_not_just_the_visited_part(
+    run_all: ModuleType, instance: object, schema: dict, expected: list[str]
+) -> None:
+    assert run_all.validate_schema(instance, schema) == expected
+
+
+def test_the_shipped_schema_has_no_schema_errors(run_all: ModuleType) -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    assert run_all.schema_errors(schema) == []
+
+
+def test_cli_fails_on_a_bad_keyword_the_summary_never_reaches(tmp_path: Path) -> None:
+    # The fixture directory has no helper files, so "skipped" is empty and
+    # its items schema is never visited by the summary; the run must still
+    # refuse a schema that uses a keyword the validator does not implement.
+    shutil.copyfile(RUNNER, tmp_path / "run_all.py")
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    schema["properties"]["skipped"]["items"]["minLength"] = 1
+    (tmp_path / "last_run.schema.json").write_text(json.dumps(schema), encoding="utf-8")
+    shutil.copyfile(FIXTURES / "evals_pass" / "passes_eval.py", tmp_path / "passes_eval.py")
+    out = tmp_path / "out.json"
+    proc = run_cli("--json-output", str(out), runner=tmp_path / "run_all.py")
+    assert json.loads(out.read_text(encoding="utf-8"))["skipped"] == []
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "$.skipped[]: schema uses unsupported keyword(s) ['minLength']" in proc.stderr
+
+
 def test_validate_json_file_reports_unreadable_inputs(run_all: ModuleType, tmp_path: Path) -> None:
     good = tmp_path / "good.json"
     good.write_text("{}", encoding="utf-8")
